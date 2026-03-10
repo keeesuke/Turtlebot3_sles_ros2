@@ -87,6 +87,10 @@ if [ -d "${TB3_SIM_SHARE}/models" ]; then
     export GAZEBO_MODEL_PATH="${TB3_SIM_SHARE}/models:${GAZEBO_MODEL_PATH:-}"
 fi
 
+export GAZEBO_MASTER_URI="http://localhost:11345"
+export GAZEBO_PLUGIN_PATH="/usr/lib/x86_64-linux-gnu/gazebo-11/plugins"
+export GAZEBO_RESOURCE_PATH="/usr/share/gazebo-11"
+
 # ── 7. Summary ───────────────────────────────────────────────────────────────
 echo "[sles_env] TurtleBot3 SLES environment loaded."
 echo "           TURTLEBOT3_MODEL = ${TURTLEBOT3_MODEL}"
