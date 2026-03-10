@@ -46,8 +46,8 @@ GAZEBO_PID=$!
 echo "      Gazebo PID: ${GAZEBO_PID}"
 
 # Wait for Gazebo to finish loading before starting perception nodes
-echo "      Waiting 10s for Gazebo to fully initialize..."
-sleep 10
+echo "      Waiting 20s for Gazebo to fully initialize..."
+sleep 20
 
 # ── Step 2: Launch LiDAR simulation (background) ─────────────────────────────
 # Note: simulate_lidar_publisher_new is already launched inside the world launch

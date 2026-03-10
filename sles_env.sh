@@ -12,14 +12,13 @@
 #   5. Optionally sets LDS_MODEL and RMW implementation
 
 SLES_WS="/illinois/Spring2025/independent_study/Turtlebot3_sles_ros2"
-_SLES_SRC="${SLES_WS}/src"
-_SLES_WS_SCRIPTS="${SLES_WS}/scripts"
 
 # ============================================================
 # FIRST-RUN ONLY: Grant execute permissions to all launch files
 # Run once after cloning the repo. Safe to re-run anytime.
 # ============================================================
 # Launch files (.py) in all SLES packages
+# _SLES_SRC="${SLES_WS}/src"
 # chmod +x "${_SLES_SRC}/turtlebot3_sles_worlds/launch/turtlebot3_custom_world_random.launch.py"
 # chmod +x "${_SLES_SRC}/turtlebot3_sles_worlds/launch/turtlebot3_custom_world_test.launch.py"
 # chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner.launch.py"
@@ -38,6 +37,7 @@ _SLES_WS_SCRIPTS="${SLES_WS}/scripts"
 # chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/simulate_lidar_publisher.py"
 # chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/simulate_lidar_publisher_new.py"
 
+# _SLES_WS_SCRIPTS="${SLES_WS}/scripts"
 # # Shell scripts in the scripts/ directory
 # if [ -d "${_SLES_WS_SCRIPTS}" ]; then
 #     chmod +x "${_SLES_WS_SCRIPTS}"/*.sh 2>/dev/null || true
@@ -72,7 +72,7 @@ export TURTLEBOT3_MODEL="waffle_pi"
 export LDS_MODEL="LDS-01"
 
 # ── 5. RMW implementation (Fast-DDS is ROS2 Humble default) ─────────────────
-# export RMW_IMPLEMENTATION=rmw_fastrtps_cpp   # default — uncomment to be explicit
+# export RMW_IMPLEMENTATION=rmw_fastrtps_cpp   # default
 # export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp # alternative
 
 # ── 6. Gazebo model search path ──────────────────────────────────────────────

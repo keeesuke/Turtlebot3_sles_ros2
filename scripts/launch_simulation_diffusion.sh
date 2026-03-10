@@ -51,8 +51,8 @@ fi
 GAZEBO_PID=$!
 echo "      Gazebo PID: ${GAZEBO_PID}"
 
-echo "      Waiting 10s for Gazebo to fully initialize..."
-sleep 10
+echo "      Waiting 20s for Gazebo to fully initialize..."
+sleep 20
 
 # ── Step 3: Launch occupancy map node (background) ───────────────────────────
 echo "[3/4] Launching LiDAR occupancy mapping node..."
