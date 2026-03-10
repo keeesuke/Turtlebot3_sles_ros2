@@ -2,7 +2,7 @@
 # sles_env.sh — Environment setup for TurtleBot3 SLES ROS2 Humble workspace
 #
 # Usage (inside Docker or on host after sourcing ROS2):
-#   source /illinois/Spring2025/independent_study/turtlebot3_ws/sles_env.sh
+#   source /illinois/Spring2025/independent_study/Turtlebot3_sles_ros2/sles_env.sh
 #
 # This script:
 #   1. Sources ROS2 Humble global setup
@@ -10,6 +10,41 @@
 #   3. Sets TURTLEBOT3_MODEL
 #   4. Sets GAZEBO_MODEL_PATH to include sles_worlds models
 #   5. Optionally sets LDS_MODEL and RMW implementation
+
+SLES_WS="/illinois/Spring2025/independent_study/Turtlebot3_sles_ros2"
+_SLES_SRC="${SLES_WS}/src"
+_SLES_WS_SCRIPTS="${SLES_WS}/scripts"
+
+# ============================================================
+# FIRST-RUN ONLY: Grant execute permissions to all launch files
+# Run once after cloning the repo. Safe to re-run anytime.
+# ============================================================
+# Launch files (.py) in all SLES packages
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_worlds/launch/turtlebot3_custom_world_random.launch.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_worlds/launch/turtlebot3_custom_world_test.launch.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner.launch.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner_NN.launch.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner_diffusion.launch.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner_switch_MPC_NN.launch.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/launch/turtlebot3_simulate_mapping.launch.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/launch/turtlebot3_simulate_lidar.launch.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/launch/turtlebot3_simulate_lidar_random.launch.py"
+
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/planner_haa_only.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/planner_nn.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/planner_diffusion.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/planner_switch_mpc_nn.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/sim_mapping.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/simulate_lidar_publisher.py"
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/simulate_lidar_publisher_new.py"
+
+# # Shell scripts in the scripts/ directory
+# if [ -d "${_SLES_WS_SCRIPTS}" ]; then
+#     chmod +x "${_SLES_WS_SCRIPTS}"/*.sh 2>/dev/null || true
+# fi
+
+# unset _SLES_SRC _SLES_WS_SCRIPTS
+# ============================================================
 
 # ── 1. ROS2 Humble base ──────────────────────────────────────────────────────
 if [ -f /opt/ros/humble/setup.bash ]; then
@@ -20,7 +55,6 @@ else
 fi
 
 # ── 2. Workspace overlay ─────────────────────────────────────────────────────
-SLES_WS="/illinois/Spring2025/independent_study/turtlebot3_ws"
 
 # Prefer local install directory overlay; fall back to install/setup.bash
 if [ -f "${SLES_WS}/install/setup.bash" ]; then
@@ -32,10 +66,10 @@ fi
 
 # ── 3. TurtleBot3 model ──────────────────────────────────────────────────────
 # Options: burger | waffle | waffle_pi
-export TURTLEBOT3_MODEL="${TURTLEBOT3_MODEL:-waffle_pi}"
+export TURTLEBOT3_MODEL="waffle_pi"
 
 # ── 4. LDS sensor model ──────────────────────────────────────────────────────
-export LDS_MODEL="${LDS_MODEL:-LDS-01}"
+export LDS_MODEL="LDS-01"
 
 # ── 5. RMW implementation (Fast-DDS is ROS2 Humble default) ─────────────────
 # export RMW_IMPLEMENTATION=rmw_fastrtps_cpp   # default — uncomment to be explicit

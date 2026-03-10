@@ -1024,6 +1024,21 @@ class HAANavigationNode(Node):
         self.get_logger().info("  - Control loop: 50Hz")
         self.get_logger().info("  - Using HAA planner only (4s horizon, dynamic map)")
         # rclpy.spin() called in main()
+
+    def _time_to_sec(self, ros_time):
+        return float(ros_time.nanoseconds) * 1e-9
+
+    def _stop_timers(self):
+        if hasattr(self, 'planning_timer') and self.planning_timer is not None:
+            try:
+                self.planning_timer.cancel()
+            except Exception:
+                pass
+        if hasattr(self, 'control_timer') and self.control_timer is not None:
+            try:
+                self.control_timer.cancel()
+            except Exception:
+                pass
     
     def save_data_on_exit(self):
         """Save the occupancy grid, goal, and state information when the program exits."""
@@ -1413,7 +1428,7 @@ class HAANavigationNode(Node):
         self.HAA_occupancy_map.y_max = msg.info.origin.position.y + msg.info.height * msg.info.resolution
         
         self.HAA_map_ready = True
-        #self.get_logger().info("HAA map received: dynamic occupancy grid map built.")
+        self.get_logger().info("HAA map received: dynamic occupancy grid map built.")
 
     def state_cb(self, msg: ModelStates):
         try:
@@ -1478,8 +1493,7 @@ class HAANavigationNode(Node):
             self.publish_stop_command()
             
             # Stop both loops
-            self.planning_timer.shutdown()
-            self.control_timer.shutdown()
+            self._stop_timers()
             rclpy.shutdown()  # "Target reached successfully"
             return
 
@@ -1551,8 +1565,7 @@ class HAANavigationNode(Node):
                 # Stop robot
                 self.publish_stop_command()
                 # Stop both loops
-                self.planning_timer.shutdown()
-                self.control_timer.shutdown()
+                self._stop_timers()
                 rclpy.shutdown()  # "HAA planner found no feasible solution"
                 return
             
@@ -1564,7 +1577,7 @@ class HAANavigationNode(Node):
                     'start_state': [x0[0], x0[1], x0[2], x0[3], x0[4]],
                     'goal': self.goal_temp[:2].copy(),
                     'step': self.step,
-                    'timestamp': self.get_clock().now().to_sec(),
+                    'timestamp': self._time_to_sec(self.get_clock().now()),
                     'planner': 'HAA'
                 }
                 self.Xopt_history.append(xopt_data)
@@ -1582,7 +1595,7 @@ class HAANavigationNode(Node):
             # Stop robot
             self.publish_stop_command()
             # Stop control loop
-            self.control_timer.shutdown()
+            self._stop_timers()
             return
 
         self.step += 1
@@ -1674,7 +1687,7 @@ class HAANavigationNode(Node):
         
         # Store control command history (store filtered values that were actually published)
         control_data = {
-            'timestamp': current_time.to_sec(),
+            'timestamp': self._time_to_sec(current_time),
             'v_cmd': self.v_cmd_filtered,
             'w_cmd': self.w_cmd_filtered,
             'current_state': current_state.copy(),

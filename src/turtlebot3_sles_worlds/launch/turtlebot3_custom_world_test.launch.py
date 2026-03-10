@@ -90,13 +90,15 @@ def generate_launch_description():
         ))
 
     # Spawn robot
+    # Entity name must be 'turtlebot3_<model>' to match planner state_cb lookup:
+    #   idx = msg.name.index('turtlebot3_waffle_pi')
     spawn_robot = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
         name='spawn_turtlebot3',
         arguments=[
             '-file', robot_urdf,
-            '-entity', TURTLEBOT3_MODEL,
+            '-entity', f'turtlebot3_{TURTLEBOT3_MODEL}',
             '-x', LaunchConfiguration('x_pos'),
             '-y', LaunchConfiguration('y_pos'),
             '-z', LaunchConfiguration('z_pos'),

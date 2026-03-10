@@ -43,6 +43,18 @@
       </ode>
     </physics>
 
+    <!-- gazebo_ros_state plugin: publishes /gazebo/model_states and /gazebo/link_states
+         Required for the SLES planner to receive robot pose via ModelStates message.
+         Without this plugin, /gazebo/model_states has 0 publishers in ROS2. -->
+    <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
+      <ros>
+        <namespace>/gazebo</namespace>
+        <remapping>model_states:=model_states</remapping>
+        <remapping>link_states:=link_states</remapping>
+      </ros>
+      <update_rate>20.0</update_rate>
+    </plugin>
+
     <!-- Obstacle 1 -->
     
 
