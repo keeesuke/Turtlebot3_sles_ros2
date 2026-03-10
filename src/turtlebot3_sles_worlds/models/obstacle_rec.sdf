@@ -1,0 +1,28 @@
+<sdf version="1.6">
+  <model name="obstacle_rec">
+    <static>true</static> <!-- Indicates that the model is static and will not move -->
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.2 0.2 0.2</size> <!-- Dimensions of the box: width, depth, height -->
+          </box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.2 0.2 0.2</size> <!-- Same dimensions for visual representation -->
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>Gazebo/Red</name> <!-- Color of the obstacle -->
+          </script>
+        </material>
+      </visual>
+      <pose>0 0 0.1 0 0 0</pose> <!-- Initial position and orientation -->
+    </link>
+  </model>
+</sdf>

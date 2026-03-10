@@ -1,0 +1,30 @@
+<sdf version="1.6">
+  <model name="obstacle_cir">
+    <static>true</static> <!-- Indicates that the model is static and will not move -->
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius> <!-- Radius of the cylinder -->
+            <length>0.2</length> <!-- Height of the cylinder -->
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius> <!-- Same radius for visual representation -->
+            <length>0.2</length> <!-- Same height for visual representation -->
+          </cylinder>
+        </geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>Gazebo/Red</name> <!-- Color of the obstacle -->
+          </script>
+        </material>
+      </visual>
+      <pose>0 0 0.1 0 0 0</pose> <!-- Initial position and orientation -->
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,31 @@
+<sdf version="1.6">
+  <model name="obstacle_tri">
+    <static>true</static> <!-- Indicates that the model is static -->
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.2 0.173 0.2</size> <!-- Approximate triangular prism with a box -->
+          </box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <polyline>
+            <height>0.2</height> <!-- Same height for visual representation -->
+            <point>0 0</point>
+            <point>0.2 0</point>
+            <point>0.1 0.1732</point> <!-- Coordinates for an equilateral triangle -->
+          </polyline>
+        </geometry>
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>Gazebo/Red</name> <!-- Color of the triangle -->
+          </script>
+        </material>
+      </visual>
+      <pose>0 0 0.1 0 0 0</pose> <!-- Position and orientation -->
+    </link>
+  </model>
+</sdf>
