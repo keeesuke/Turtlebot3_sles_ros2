@@ -857,27 +857,28 @@ class HAANavigationNode(Node):
         self.declare_parameter('horizon_haa', 40)
         self.declare_parameter('horizon_hpa', 20)
         self.declare_parameter('dt', 0.1)
-        self.declare_parameter('v_limit_haa', 0.14)
+        self.declare_parameter('v_limit_haa', 0.26)
         self.declare_parameter('v_limit_hpa', 0.2)
-        self.declare_parameter('omega_limit_haa', 0.9)
+        self.declare_parameter('omega_limit_haa', 1.82)
         self.declare_parameter('omega_limit_hpa', 1.0)
-        self.declare_parameter('a_limit', 0.25)
-        self.declare_parameter('alpha_limit', 0.5)
+        self.declare_parameter('a_limit', 1.0)
+        self.declare_parameter('alpha_limit', 1.0)
         self.declare_parameter('robot_radius', 0.22)
         self.declare_parameter('goal', '[-1.5, -1.5, 0, 0, 0]')
-        self.declare_parameter('kx', 0.6)
-        self.declare_parameter('ky', 8.0)
-        self.declare_parameter('kth', 1.6)
+        self.declare_parameter('kx', 1.0)
+        self.declare_parameter('ky', 1.0)
+        self.declare_parameter('kth', 1.0)
         self.declare_parameter('kv', 1.0)
         self.declare_parameter('kw', 1.0)
         self.declare_parameter('kix', 0.1)
-        self.declare_parameter('kiy', 0.0)
+        self.declare_parameter('kiy', 0.1)
         self.declare_parameter('kith', 0.1)
         self.declare_parameter('max_integral', 1.0)
         self.declare_parameter('Q_diag', '[10,10,0,0,0]')
         self.declare_parameter('R_diag', '[0,0]')
         self.declare_parameter('failure_path', os.path.join(os.path.expanduser('~'), 'mppi_failure_data.npz'))
         self.declare_parameter('K_feedback', '[]')
+
 
         # Load params
         self.N_haa = self.get_parameter('horizon_haa').value  # default: 40
@@ -1523,7 +1524,7 @@ class HAANavigationNode(Node):
                     w_min=-self.omega_limit_haa, w_max=self.omega_limit_haa,
                     a_min=-self.a_limit, a_max=self.a_limit,
                     alpha_min=-self.alpha_limit, alpha_max=self.alpha_limit,
-                    smoothing_weight=0.
+                    smoothing_weight=0.1
                 )
                 self.get_logger().info("HAA planner initialized (4s horizon, dynamic map).")
             
