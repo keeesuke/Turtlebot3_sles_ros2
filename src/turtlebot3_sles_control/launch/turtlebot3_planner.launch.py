@@ -48,7 +48,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             'goal',
-            default_value='[-1.5, -1.5, 0, 0, 0]',
+            default_value='[-1.5, 1.5, 0, 0, 0]',
             description='Goal state [x, y, theta, v, w]'
         ),
         OpaqueFunction(function=_launch_setup),
