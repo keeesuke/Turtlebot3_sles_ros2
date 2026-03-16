@@ -6,5 +6,9 @@ find_package(ament_cmake REQUIRED)
 install(DIRECTORY launch worlds models
   DESTINATION share/${PROJECT_NAME}
 )
+install(PROGRAMS
+  spawn_random_world.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 ament_package()

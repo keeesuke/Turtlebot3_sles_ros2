@@ -44,9 +44,11 @@ echo ""
 echo "[1/4] Launching Gazebo world..."
 if [ -n "${SEED}" ]; then
     ros2 launch turtlebot3_sles_worlds turtlebot3_custom_world_random.launch.py \
-        seed:="${SEED}" &
+        seed:="${SEED}" \
+        goal:="${GOAL}" &
 else
-    ros2 launch turtlebot3_sles_worlds turtlebot3_custom_world_random.launch.py &
+    ros2 launch turtlebot3_sles_worlds turtlebot3_custom_world_random.launch.py \
+        goal:="${GOAL}" &
 fi
 GAZEBO_PID=$!
 echo "      Gazebo PID: ${GAZEBO_PID}"
