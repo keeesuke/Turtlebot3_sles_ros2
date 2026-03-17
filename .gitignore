@@ -3,3 +3,4 @@ install/
 build/
 **/__pycache__
 robot_trajectory.png
+src/Config/scenario.yaml

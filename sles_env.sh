@@ -72,9 +72,10 @@ export TURTLEBOT3_MODEL="waffle_pi"
 # ── 4. LDS sensor model ──────────────────────────────────────────────────────
 export LDS_MODEL="LDS-01"
 
-# ── 5. RMW implementation (Fast-DDS is ROS2 Humble default) ─────────────────
+# ── 5. ROS DOMAIN ID and RMW implementation (Fast-DDS is ROS2 Humble default) ─────────────────
 # export RMW_IMPLEMENTATION=rmw_fastrtps_cpp   # default
 # export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp # alternative
+export ROS_DOMAIN_ID=30 # to be the same with turtlebot3 hardware
 
 # ── 6. Gazebo model search path ──────────────────────────────────────────────
 SLES_WORLDS_SHARE="${SLES_WS}/install/turtlebot3_sles_worlds/share/turtlebot3_sles_worlds"

@@ -12,6 +12,7 @@ import os
 import random
 import math
 import ast
+import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -23,7 +24,21 @@ from launch_ros.actions import Node
 
 OBSTACLE_SIZES        = [0.15, 0.2, 0.25]
 OBSTACLE_SHAPES_LIST  = ['rectangle', 'hexagon', 'triangle']
-GOAL_DEFAULT_STATE    = '[-1.5, -1.5, 0, 0, 0]'
+
+
+def _default_config_dir():
+    sles_ws = os.environ.get('SLES_WS', '').strip()
+    if sles_ws:
+        return os.path.join(sles_ws, 'src', 'Config')
+    return os.path.join(os.getcwd(), 'src', 'Config')
+
+
+def _default_goal_file():
+    return os.path.join(_default_config_dir(), 'goal.yaml')
+
+
+def _default_scenario_file():
+    return os.path.join(_default_config_dir(), 'scenario.yaml')
 
 def _distance(x1, y1, x2, y2):
     return math.hypot(x1 - x2, y1 - y2)
@@ -96,15 +111,58 @@ def _generate_normal_size(rng, mean=0.2, sigma=0.02, min_size=0.1, max_size=0.3)
     return max(min_size, min(max_size, size))
 
 
-def _parse_goal_xy(goal_str, fallback_goal_str=GOAL_DEFAULT_STATE):
-    fallback = ast.literal_eval(fallback_goal_str)
+def _parse_goal_xy(goal_str):
+    parsed = ast.literal_eval(goal_str)
+    if not isinstance(parsed, (list, tuple)) or len(parsed) < 2:
+        raise ValueError(f"Invalid goal format: {goal_str}")
+    return float(parsed[0]), float(parsed[1])
+
+
+def _read_goal_from_goal_file(goal_file):
+    if not goal_file:
+        return ''
+    if not os.path.exists(goal_file):
+        return ''
+
     try:
-        parsed = ast.literal_eval(goal_str)
-        if isinstance(parsed, (list, tuple)) and len(parsed) >= 2:
-            return float(parsed[0]), float(parsed[1])
+        with open(goal_file, 'r', encoding='utf-8') as file:
+            data = yaml.safe_load(file) or {}
     except Exception:
-        pass
-    return float(fallback[0]), float(fallback[1])
+        return ''
+
+    common = data.get('/**', {}).get('ros__parameters', {}) if isinstance(data, dict) else {}
+    goal = common.get('goal', '')
+    return str(goal) if goal is not None else ''
+
+
+def _write_runtime_params_file(runtime_params_file, robot_pose, configs):
+    robot_x, robot_y, robot_z, robot_yaw = robot_pose
+    ros_params = {
+        'scenario_has_random_obstacles': True,
+        'random_robot_x': float(robot_x),
+        'random_robot_y': float(robot_y),
+        'random_robot_z': float(robot_z),
+        'random_robot_yaw': float(robot_yaw),
+    }
+
+    for i, (x, y, size, shape) in enumerate(configs, start=1):
+        ros_params[f'random_x_{i}'] = float(x)
+        ros_params[f'random_y_{i}'] = float(y)
+        ros_params[f'random_size_{i}'] = float(size)
+        ros_params[f'random_shape_{i}'] = str(shape)
+
+    runtime_data = {
+        '/**': {
+            'ros__parameters': ros_params
+        }
+    }
+
+    runtime_dir = os.path.dirname(runtime_params_file)
+    if runtime_dir:
+        os.makedirs(runtime_dir, exist_ok=True)
+
+    with open(runtime_params_file, 'w', encoding='utf-8') as file:
+        yaml.safe_dump(runtime_data, file, sort_keys=True)
 
 
 def _generate_ros1_style_config(seed=None, target_x=None, target_y=None):
@@ -237,8 +295,15 @@ def _launch_setup(context, *args, **kwargs):
     # Resolve seed argument
     seed_str = LaunchConfiguration('seed').perform(context)
     seed = int(seed_str) if seed_str.isdigit() else None
-    goal_str = LaunchConfiguration('goal').perform(context)
-    goal_x, goal_y = _parse_goal_xy(goal_str, fallback_goal_str=GOAL_DEFAULT_STATE)
+    goal_file = LaunchConfiguration('goal_file').perform(context)
+    scenario_file = LaunchConfiguration('scenario_file').perform(context)
+    goal_override = LaunchConfiguration('goal').perform(context)
+    goal_str = goal_override if goal_override else _read_goal_from_goal_file(goal_file)
+    if not goal_str:
+        raise RuntimeError(
+            "Goal is not set. Provide goal:=... or set '/**.ros__parameters.goal' in goal_file."
+        )
+    goal_x, goal_y = _parse_goal_xy(goal_str)
 
     world_file = os.path.join(
         pkg_sles_worlds, 'worlds', 'turtlebot3_custom_world_rectangle.world'
@@ -247,6 +312,8 @@ def _launch_setup(context, *args, **kwargs):
     # Generate ROS1-style random robot pose + obstacle configs
     robot_pose, configs = _generate_ros1_style_config(seed=seed, target_x=goal_x, target_y=goal_y)
     robot_x, robot_y, robot_z, robot_yaw = robot_pose
+
+    _write_runtime_params_file(scenario_file, robot_pose, configs)
 
     gzserver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -316,6 +383,19 @@ def _launch_setup(context, *args, **kwargs):
     ]
 
 def generate_launch_description():
+    default_goal_file = _default_goal_file()
+    default_scenario_file = _default_scenario_file()
+
+    goal_file_arg = DeclareLaunchArgument(
+        'goal_file',
+        default_value=default_goal_file,
+        description='Shared goal YAML path under workspace src/Config'
+    )
+    scenario_file_arg = DeclareLaunchArgument(
+        'scenario_file',
+        default_value=default_scenario_file,
+        description='Shared runtime scenario YAML path under workspace src/Config'
+    )
     seed_arg = DeclareLaunchArgument(
         'seed',
         default_value='',
@@ -323,11 +403,13 @@ def generate_launch_description():
     )
     goal_arg = DeclareLaunchArgument(
         'goal',
-        default_value=GOAL_DEFAULT_STATE,
-        description='Goal state [x, y, theta, v, w] used by world randomizer'
+        default_value='',
+        description='Optional goal override [x, y, theta, v, w] (empty = read from params_file)'
     )
 
     ld = LaunchDescription()
+    ld.add_action(goal_file_arg)
+    ld.add_action(scenario_file_arg)
     ld.add_action(seed_arg)
     ld.add_action(goal_arg)
     ld.add_action(OpaqueFunction(function=_launch_setup))

@@ -852,8 +852,7 @@ class KanayamaController:
 class HAANavigationNode(Node):
     def __init__(self):
         super().__init__('HAA_only')
-        # TODO(migration): All rospy.get_param calls below require declare_parameter() first in ROS2
-        # Declare all ROS2 parameters with defaults (converted from rospy.get_param)
+        # Declare all ROS2 parameters with defaults.
         self.declare_parameter('horizon_haa', 40)
         self.declare_parameter('horizon_hpa', 20)
         self.declare_parameter('dt', 0.1)
@@ -865,6 +864,7 @@ class HAANavigationNode(Node):
         self.declare_parameter('alpha_limit', 1.0)
         self.declare_parameter('robot_radius', 0.22)
         self.declare_parameter('goal', '[-1.5, -1.5, 0, 0, 0]')
+        self.declare_parameter('scenario_has_random_obstacles', False)
         self.declare_parameter('kx', 1.0)
         self.declare_parameter('ky', 1.0)
         self.declare_parameter('kth', 1.0)
@@ -878,6 +878,11 @@ class HAANavigationNode(Node):
         self.declare_parameter('R_diag', '[0,0]')
         self.declare_parameter('failure_path', os.path.join(os.path.expanduser('~'), 'mppi_failure_data.npz'))
         self.declare_parameter('K_feedback', '[]')
+        for i in range(1, 17):
+            self.declare_parameter(f'random_x_{i}', 0.0)
+            self.declare_parameter(f'random_y_{i}', 0.0)
+            self.declare_parameter(f'random_size_{i}', 0.2)
+            self.declare_parameter(f'random_shape_{i}', 'rectangle')
 
 
         # Load params
@@ -893,6 +898,7 @@ class HAANavigationNode(Node):
         raw_goal = self.get_parameter('goal').value  # default: [0, 0, 0, 0, 0]
         import ast
         self.goal = ast.literal_eval(raw_goal) if isinstance(raw_goal, str) else raw_goal
+        self.scenario_has_random_obstacles = bool(self.get_parameter('scenario_has_random_obstacles').value)
         self.goal_temp = self.goal.copy()
         self.goal_orig_history = []
         self.goal_temp_history = []
@@ -1171,21 +1177,19 @@ class HAANavigationNode(Node):
                 orig_y = [goal[1] for goal in self.goal_orig_history]
                 ax1.scatter(orig_x, orig_y, c='red', marker='s', alpha=0.7, s=50, label='Original Goals')
             
-            # Plot obstacles from set_random_config_node.py
+            # Plot obstacles from ROS2 parameters (loaded from runtime YAML)
             try:
                 obstacle_count = 0
-                for i in range(1, 17):  # Obstacles are numbered 1 to 16
-                    try:
-                        obs_x = rospy.get_param(f'random_x_{i}')
-                        obs_y = rospy.get_param(f'random_y_{i}')
-                        obs_size = rospy.get_param(f'random_size_{i}', 0.2)  # Default size if not found
-                        obs_shape = rospy.get_param(f'random_shape_{i}', 'rectangle')  # Default shape if not found
-                        
-                        # Calculate bottom-left corner for Rectangle (which uses bottom-left corner, not center)
+                if self.scenario_has_random_obstacles:
+                    for i in range(1, 17):
+                        obs_x = float(self.get_parameter(f'random_x_{i}').value)
+                        obs_y = float(self.get_parameter(f'random_y_{i}').value)
+                        obs_size = float(self.get_parameter(f'random_size_{i}').value)
+                        obs_shape = str(self.get_parameter(f'random_shape_{i}').value)
+
                         obstacle_bottom_left_x = obs_x - obs_size / 2
                         obstacle_bottom_left_y = obs_y - obs_size / 2
-                        
-                        # Plot based on shape
+
                         if obs_shape == 'rectangle':
                             obstacle_rect = patches.Rectangle(
                                 (obstacle_bottom_left_x, obstacle_bottom_left_y),
@@ -1199,7 +1203,6 @@ class HAANavigationNode(Node):
                             )
                             ax1.add_patch(obstacle_rect)
                         elif obs_shape == 'hexagon':
-                            # Create hexagon (6-sided polygon)
                             hex_radius = obs_size / 2
                             hex_vertices = []
                             for j in range(6):
@@ -1217,18 +1220,13 @@ class HAANavigationNode(Node):
                             )
                             ax1.add_patch(hexagon)
                         elif obs_shape == 'triangle':
-                            # Create equilateral triangle matching Gazebo definition
-                            # In Gazebo: base at bottom, top vertex pointing up
                             base = obs_size
                             half_base = base / 2.0
-                            height_tri = base * np.sqrt(3) / 2.0  # equilateral triangle height
-                            
-                            # Triangle vertices (matching spawn_random_world.py)
-                            # Base at bottom, top vertex pointing upward
+                            height_tri = base * np.sqrt(3) / 2.0
                             tri_vertices = [
-                                (obs_x - half_base, obs_y),      # bottom left
-                                (obs_x + half_base, obs_y),      # bottom right
-                                (obs_x, obs_y + height_tri)      # top
+                                (obs_x - half_base, obs_y),
+                                (obs_x + half_base, obs_y),
+                                (obs_x, obs_y + height_tri)
                             ]
                             triangle = patches.Polygon(
                                 tri_vertices,
@@ -1240,7 +1238,6 @@ class HAANavigationNode(Node):
                             )
                             ax1.add_patch(triangle)
                         else:
-                            # Default to rectangle if shape is unknown
                             obstacle_rect = patches.Rectangle(
                                 (obstacle_bottom_left_x, obstacle_bottom_left_y),
                                 obs_size,
@@ -1252,12 +1249,9 @@ class HAANavigationNode(Node):
                                 label='Obstacles' if obstacle_count == 0 else ""
                             )
                             ax1.add_patch(obstacle_rect)
-                        
+
                         obstacle_count += 1
-                    except Exception:
-                        # Parameter doesn't exist, skip this obstacle
-                        continue
-                
+
                 if obstacle_count > 0:
                     self.get_logger().info(f"Plotted {obstacle_count} obstacles on trajectory plot")
             except Exception as e:

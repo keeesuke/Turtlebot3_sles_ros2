@@ -1,0 +1,34 @@
+# For using SpaceMouse, attach USB driver to the PC to activate bluetooth.
+
+# On the terminal, install spacenavd package:
+sudo apt update
+sudo apt install spacenavd libspnav-dev
+
+# Then start and enable the daemon:
+bashsudo systemctl enable spacenavd
+sudo systemctl start spacenavd
+sudo systemctl status spacenavd   # should show "active (running)"
+
+# Install the ROS2 SpaceMouse node
+sudo apt install ros-humble-spacenav -y
+
+# Verify it installed:
+bashros2 pkg list | grep spacenav
+
+# Run the SpaceMouse node
+ros2 run spacenav spacenav_node
+
+# On another terminal with the same ROS_DOMAIN_ID, confirm if spacenav ros2 topic appears:
+# You should see:
+# /spacenav/joy
+# /spacenav/offset
+# /spacenav/rot_offset
+
+# Watch live data by moving your SpaceMouse:
+ros2 topic echo /spacenav/offset
+
+# run the bridge node between space mouse and /cmd_vel
+src/turtlebot3_sles_control/turtlebot3_sles_spacemouse_control/spacemouse_relay.py
+python3 spacemouse_relay.py
+
+
