@@ -1,5 +1,6 @@
 # For using SpaceMouse, attach USB driver to the PC to activate bluetooth.
 
+--- initial setup for space mouce ---
 # On the terminal, install spacenavd package:
 sudo apt update
 sudo apt install spacenavd libspnav-dev
@@ -15,6 +16,14 @@ sudo apt install ros-humble-spacenav -y
 # Verify it installed:
 bashros2 pkg list | grep spacenav
 
+
+--- How to operate with space mouse ---
+
+##### university local pc #####
+
+# for all terminal, set ROS_DOMAIN_ID by running below
+. sles_env.sh 
+
 # Run the SpaceMouse node
 ros2 run spacenav spacenav_node
 
@@ -28,7 +37,42 @@ ros2 run spacenav spacenav_node
 ros2 topic echo /spacenav/offset
 
 # run the bridge node between space mouse and /cmd_vel
-src/turtlebot3_sles_control/turtlebot3_sles_spacemouse_control/spacemouse_relay.py
+cd /home/acrl/sles/Turtlebot3_sles_ros2/src/turtlebot3_sles_control/turtlebot3_sles_spacemouse_control
 python3 spacemouse_relay.py
+
+
+##### robot raspberry pi #####
+
+# after turning on robot power
+ssh sigrobotics@10.195.154.171
+. ~/.bashrc
+
+# launch hardware
+ros2 launch turtlebot3_bringup robot.launch.py
+
+# launch rviz2
+rviz2 -d Config/slam_toolbox_sles.rviz
+
+or launch nav2 specific rviz
+
+ros2 launch nav2_bringup rviz_launch.py
+
+# for initial map creation
+ros2 launch slam_toolbox online_async_launch.py \
+  slam_params_file:=/opt/ros/humble/share/slam_toolbox/config/mapper_params_online_async.yaml \
+  use_sim_time:=false
+
+# after moving around by manual, save initial map
+ros2 run nav2_map_server map_saver_cli -f ./maps/lab_map
+
+# launch nav2 in real hardware
+ros2 launch nav2_bringup bringup_launch.py \
+  map:=$HOME/sles/Turtlebot3_sles_ros2/maps/lab_map.yaml \
+  use_sim_time:=false \
+  params_file:=$HOME/sles/Turtlebot3_sles_ros2/nav2/nav2_params_real.yaml
+
+# check frame tree
+ros2 run tf2_tools view_frames
+
 
 

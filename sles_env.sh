@@ -11,8 +11,8 @@
 #   4. Sets GAZEBO_MODEL_PATH to include sles_worlds models
 #   5. Optionally sets LDS_MODEL and RMW implementation
 
-SLES_WS="/illinois/Spring2025/independent_study/Turtlebot3_sles_ros2"
-
+# SLES_WS="/illinois/Spring2025/independent_study/Turtlebot3_sles_ros2"
+SLES_WS="/home/acrl/sles/Turtlebot3_sles_ros2"
 # ============================================================
 # FIRST-RUN ONLY: Grant execute permissions to all launch files
 # Run once after cloning the repo. Safe to re-run anytime.
