@@ -183,7 +183,6 @@ class LidarMappingNode(Node):
         """
         Plots the 2D occupancy grid in a single, updating figure.
         Called periodically via timer (1 Hz).
-        ROS1版の plot_occupancy_grid を ROS2 向けに移植。
         """
         if self.fig is None:
             self.fig, self.ax = plt.subplots(figsize=(6, 6))
