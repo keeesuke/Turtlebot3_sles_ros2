@@ -7,12 +7,46 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import os
+from pathlib import Path
+
+
+def _find_src_config_near_launch_file():
+    """Find workspace .../src/Config by walking up from this launch file (works from any cwd)."""
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(10):
+        cfg = os.path.join(d, 'Config')
+        if os.path.isdir(cfg):
+            return cfg
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+
+def _src_config_from_colcon_install_launch():
+    """If launch file lives under workspace/install/..., use <ws>/src/Config."""
+    parts = Path(__file__).resolve().parts
+    if 'install' not in parts:
+        return None
+    i = parts.index('install')
+    ws_root = Path(*parts[:i])
+    cfg = ws_root / 'src' / 'Config'
+    if cfg.is_dir():
+        return str(cfg)
+    return None
 
 
 def _default_shared_config_file():
     sles_ws = os.environ.get('SLES_WS', '').strip()
     if sles_ws:
         return os.path.join(sles_ws, 'src', 'Config')
+    found = _find_src_config_near_launch_file()
+    if found:
+        return found
+    found = _src_config_from_colcon_install_launch()
+    if found:
+        return found
     return os.path.join(os.getcwd(), 'src', 'Config')
 
 
@@ -54,11 +88,15 @@ def _launch_setup(context, *args, **kwargs):
     if goal:
         planner_params['goal'] = goal
 
+    # Only pass YAML paths that exist — missing files break ros2 param loading when cwd is wrong.
+    yaml_params = [p for p in (scenario_file, goal_file) if os.path.isfile(p)]
+
     planner_node = Node(
         package='turtlebot3_sles_control',
-        executable='planner_haa_only.py',
+        # executable='planner_haa_only.py',
+        executable='planner_haa_real_world.py',
         name='planner_node',
-        parameters=[scenario_file, goal_file, planner_params],
+        parameters=yaml_params + [planner_params],
         output='screen',
     )
     return [planner_node]
