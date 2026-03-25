@@ -47,6 +47,9 @@ python3 spacemouse_relay.py
 ssh sigrobotics@10.195.154.171
 . ~/.bashrc
 
+# initial setup: install necessary packages
+sudo apt install ros-humble-navigation2 ros-humble-nav2-bringup ros-humble-slam-toolbox
+
 # launch hardware
 ros2 launch turtlebot3_bringup robot.launch.py
 
@@ -65,11 +68,14 @@ ros2 launch slam_toolbox online_async_launch.py \
 # after moving around by manual, save initial map
 ros2 run nav2_map_server map_saver_cli -f ./maps/lab_map
 
-# launch nav2 in real hardware
+# launch nav2 in real hardware for auto navigation
 ros2 launch nav2_bringup bringup_launch.py \
   map:=$HOME/sles/Turtlebot3_sles_ros2/maps/lab_map.yaml \
   use_sim_time:=false \
   params_file:=$HOME/sles/Turtlebot3_sles_ros2/nav2/nav2_params_real.yaml
+
+# occupancy grid generation (this is for MPC)
+ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=True
 
 # check frame tree
 ros2 run tf2_tools view_frames
