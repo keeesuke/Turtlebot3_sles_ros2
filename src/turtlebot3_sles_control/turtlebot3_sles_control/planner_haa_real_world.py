@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from rclpy.duration import Duration
 import numpy as np
-import tf2_ros
-from tf2_ros import TransformException
 from nav_msgs.msg import OccupancyGrid, Odometry
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
 from tf_transformations import euler_from_quaternion
+import tf2_ros
 import os
-import logging
 import atexit
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -24,14 +21,6 @@ try:
 except Exception:
     LineString = None
     _HAS_SHAPELY = False
-
-
-def _planner_artifact_dir() -> str:
-    """Writable directory for MPPI debug PNGs and saved artifacts (real-robot friendly)."""
-    d = os.path.join(os.path.expanduser('~'), 'turtlebot3_sles_planner_debug')
-    os.makedirs(d, exist_ok=True)
-    return d
-
 
 # MPPI Implementation from test_mppi_map.py
 class MPPI:
@@ -261,12 +250,11 @@ class OccupancyGridMap:
 
 class MPPIPlanner:
     """MPPI Planner for Turtlebot navigation."""
-    
+
     def __init__(self, mppi: MPPI, dynamics: TurtlebotDynamics, occupancy_map: OccupancyGridMap,
                  v_min: float = -0.26, v_max: float = 0.26, w_min: float = -1.82, w_max: float = 1.82,
                  a_min: float = -1.0, a_max: float = 1.0, alpha_min: float = -1.0, alpha_max: float = 1.0,
                  smoothing_weight: float = 0.1, logger=None):
-        self._logger = logger if logger is not None else logging.getLogger(__name__ + '.MPPIPlanner')
         self.mppi = mppi
         self.dynamics = dynamics
         self.occupancy_map = occupancy_map
@@ -279,12 +267,31 @@ class MPPIPlanner:
         self.alpha_min = alpha_min
         self.alpha_max = alpha_max
         self.smoothing_weight = smoothing_weight
-        
+        self._logger = logger  # rclpy logger from the parent Node, or None
+
         # Initialize nominal control sequence
         self.nominal_controls = np.zeros((mppi.num_nodes, mppi.nu))
-        
+
         # Warm start: store previous optimal control sequence
         self.previous_controls = None
+
+    def _log_info(self, msg: str):
+        if self._logger is not None:
+            self._logger.info(msg)
+        else:
+            print(f'[MPPIPlanner/INFO] {msg}')
+
+    def _log_warn(self, msg: str):
+        if self._logger is not None:
+            self._logger.warn(msg)
+        else:
+            print(f'[MPPIPlanner/WARN] {msg}')
+
+    def _log_error(self, msg: str):
+        if self._logger is not None:
+            self._logger.error(msg)
+        else:
+            print(f'[MPPIPlanner/ERROR] {msg}')
     
     def update_occupancy_map(self, new_occupancy_map: OccupancyGridMap):
         """Update the occupancy map while preserving control history."""
@@ -305,8 +312,8 @@ class MPPIPlanner:
             collision_angularv = 0
             control_only = 0
             other_violations = 0
-            self._logger.info(f"Nominal controls: {nominal_controls}")
-            self._logger.info(f"start state: {start_state}")
+            self._log_info(f"Nominal controls: {nominal_controls}")
+            self._log_info(f"start state: {start_state}")
             
             for i in range(num_total):
                 if valid_mask[i]:
@@ -361,18 +368,14 @@ class MPPIPlanner:
                 else:
                     other_violations += 1
 
-            self._logger.info(f"MPPI Debug Analysis:")
-            self._logger.info(f"  Total sampled trajectories: {num_total}")
-            self._logger.info(f"  Valid trajectories: {num_valid}")
-            self._logger.info(f"  Success rate: {num_valid/num_total*100:.1f}%")
-            self._logger.info(f"  Invalid trajectory breakdown:")
-            self._logger.info(f"    Collision only: {collision_only} ({collision_only/num_total*100:.1f}%)")
-            self._logger.info(f"    Linear velocity only: {linear_velocity_only} ({linear_velocity_only/num_total*100:.1f}%)")
-            self._logger.info(f"    Angular velocity only: {angular_velocity_only} ({angular_velocity_only/num_total*100:.1f}%)")
-            self._logger.info(f"    Collision + linear velocity: {collision_linearv} ({collision_linearv/num_total*100:.1f}%)")
-            self._logger.info(f"    Collision + angular velocity: {collision_angularv} ({collision_angularv/num_total*100:.1f}%)")
-            self._logger.info(f"    Control only: {control_only} ({control_only/num_total*100:.1f}%)")
-            self._logger.info(f"    Other violations: {other_violations} ({other_violations/num_total*100:.1f}%)")
+            self._log_warn(f"MPPI trajectory breakdown — total={num_total}, valid={num_valid} ({num_valid/num_total*100:.1f}%)")
+            self._log_warn(f"  Collision only:          {collision_only:4d} ({collision_only/num_total*100:.1f}%)")
+            self._log_warn(f"  Linear-velocity only:    {linear_velocity_only:4d} ({linear_velocity_only/num_total*100:.1f}%)")
+            self._log_warn(f"  Angular-velocity only:   {angular_velocity_only:4d} ({angular_velocity_only/num_total*100:.1f}%)")
+            self._log_warn(f"  Collision + linear-vel:  {collision_linearv:4d} ({collision_linearv/num_total*100:.1f}%)")
+            self._log_warn(f"  Collision + angular-vel: {collision_angularv:4d} ({collision_angularv/num_total*100:.1f}%)")
+            self._log_warn(f"  Control only:            {control_only:4d} ({control_only/num_total*100:.1f}%)")
+            self._log_warn(f"  Other:                   {other_violations:4d} ({other_violations/num_total*100:.1f}%)")
             # Create debug plots - two subplots
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
             
@@ -458,16 +461,14 @@ class MPPIPlanner:
             
             # Save the plot in the specified directory with timestamp
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            debug_path = os.path.join(
-                _planner_artifact_dir(), f'mppi_no_valid_trajectories_debug_{timestamp}.png'
-            )
+            debug_path = os.path.join('/home/rant3/catkin_ws/src/turtlebot3_simulations/turtlebot3_gazebo/launch', f'mppi_no_valid_trajectories_debug_{timestamp}.png')
             plt.savefig(debug_path, dpi=300, bbox_inches='tight')
             plt.close()  # Close the figure to free memory
             
-            self._logger.info(f"MPPI debug plot saved to: {debug_path}")
-            
+            self._log_info(f"MPPI debug plot saved to: {debug_path}")
+
         except Exception as e:
-            self._logger.error(f"Error in MPPI debug plot: {e}")
+            self._log_error(f"Error in MPPI debug plot: {e}")
     
     def simulate_trajectories_vectorized(self, start_state: RobotState, control_sequences: np.ndarray) -> np.ndarray:
         """Vectorized trajectory simulation for all control sequences at once."""
@@ -598,7 +599,7 @@ class MPPIPlanner:
             
             # Count violations per trajectory and apply penalty
             violations_per_trajectory = np.sum(violation_matrix, axis=1)  # Sum violations per trajectory
-            near_obstacle_penalty = violations_per_trajectory * 3  # Penalty per violation
+            near_obstacle_penalty = violations_per_trajectory * 30  # Penalty per violation (high weight to steer away from obstacles)
             rewards -= near_obstacle_penalty
         
         # Add control smoothing penalty if control sequences are provided
@@ -677,7 +678,7 @@ class MPPIPlanner:
         
         # MPPI iterations
         mppi_iterations_time = time.time()
-        for iteration in range(1):  # Increased iterations for better convergence
+        for iteration in range(3):  # 3 iterations per planning cycle for better convergence around obstacles
             iteration_start = time.time()
             
             # Sample control sequences
@@ -702,7 +703,7 @@ class MPPIPlanner:
                 valid_trajectories = all_trajectories[valid_mask]
                 
                 # Pre-compute safety-dilated grid for near-obstacle penalty (compute once per planning iteration)
-                safe_distance = 0.05  # meters - additional safety margin
+                safe_distance = 0.15  # meters - soft safety zone: MPPI steered away from obstacles earlier
                 total_safety_radius = robot_radius + safe_distance
                 safety_radius_cells = int(total_safety_radius / self.occupancy_map.resolution)
                 safety_dilated_grid = self.occupancy_map.dilate_grid_new(safety_radius_cells)
@@ -727,7 +728,7 @@ class MPPIPlanner:
                 
             else:
                 # If no valid trajectories found, debug plot and return None
-                self._logger.info("No valid trajectories found! Creating debug plot.")
+                self._log_warn("No valid trajectories found!")
                 if debug_plot:
                     self.debug_plot_no_valid_trajectories(start_state, goal, sampled_controls, nominal_controls, all_trajectories, valid_mask)
                 end_time = time.time()
@@ -863,9 +864,9 @@ class KanayamaController:
         self.prev_eth = 0.0
         #self.get_logger().info("Integral errors reset to zero")
 
-class HAARealWorldNavigationNode(Node):
+class HAANavigationNode(Node):
     def __init__(self):
-        super().__init__('HAA_real_world')
+        super().__init__('HAA_only')
         # Declare all ROS2 parameters with defaults.
         self.declare_parameter('horizon_haa', 40)
         self.declare_parameter('horizon_hpa', 20)
@@ -898,10 +899,6 @@ class HAARealWorldNavigationNode(Node):
             self.declare_parameter(f'random_size_{i}', 0.2)
             self.declare_parameter(f'random_shape_{i}', 'rectangle')
 
-        self.declare_parameter('occupancy_grid_topic', '/map')
-        self.declare_parameter('odom_topic', '/odom')
-        self.declare_parameter('map_frame', 'map')
-        self.declare_parameter('base_frame', 'base_footprint')
 
         # Load params
         self.N_haa = self.get_parameter('horizon_haa').value  # default: 40
@@ -988,73 +985,40 @@ class HAARealWorldNavigationNode(Node):
             self.kix, self.kiy, self.kith, self.max_integral
         )
 
-        self._occ_topic = self.get_parameter('occupancy_grid_topic').value
-        self._odom_topic = self.get_parameter('odom_topic').value
-        self.map_frame = self.get_parameter('map_frame').value
-        self.base_frame = self.get_parameter('base_frame').value
+        # Initial pose/velocity state (set by TF2 timer and odom callback)
+        self.x = 0.0
+        self.y = 0.0
+        self.theta = 0.0
+        self.v = 0.0
+        self.omega = 0.0
 
+        # Goal management: wait for explicit goal from RViz2 before planning
+        self.goal_received = False
+        self._goal_wait_logged = False  # log "waiting for goal" only once per wait cycle
+
+        # TF2 for map-frame robot pose
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         # ROS pubs/subs
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 1)
-        self.create_subscription(Odometry, self._odom_topic, self.state_cb, 10)
-        self.create_subscription(OccupancyGrid, self._occ_topic, self.map_cb, 10)
+        self.inflation_map_pub = self.create_publisher(OccupancyGrid, '/inflation_map', 1)
+        self.create_subscription(Odometry, '/odom', self.odom_cb, 10)
+        self.create_subscription(OccupancyGrid, '/map', self.map_cb, 10)
+        self.create_subscription(PoseStamped, '/move_base_simple/goal', self.goal_cb, 10)
 
-        # Wait for required topics before starting planning
-        self.get_logger().info("Waiting for required topics...")
-        
-        # Wait for occupancy grid map
-        try:
-            self.get_logger().info(f"Waiting for occupancy grid on {self._occ_topic}...")
-            import time; time.sleep(0.5)
-            if self.HAA_map_ready:
-                self.get_logger().info("✓ Occupancy grid map received and processed")
-            else:
-                self.get_logger().warn("⚠ Map message received but not processed yet. Waiting...")
-                timeout_count = 0
-                while not self.HAA_map_ready and timeout_count < 10:
-                    import time; time.sleep(0.1)
-                    timeout_count += 1
-                if self.HAA_map_ready:
-                    self.get_logger().info("✓ Occupancy grid map processed")
-                else:
-                    self.get_logger().warn("⚠ Map still not ready after waiting")
-        except Exception:
-            self.get_logger().warn(f"⚠ Timeout waiting for {self._occ_topic}.")
-        
-        # Wait for robot state (odom + TF map->base)
-        try:
-            self.get_logger().info(
-                f"Waiting for odometry on {self._odom_topic} and TF {self.map_frame} -> {self.base_frame}..."
-            )
-            import time; time.sleep(0.5)
-            if self.state_ready:
-                self.get_logger().info("✓ Robot state (map pose + velocities) ready")
-            else:
-                self.get_logger().warn("⚠ State not ready yet. Waiting...")
-                timeout_count = 0
-                while not self.state_ready and timeout_count < 50:
-                    import time; time.sleep(0.1)
-                    timeout_count += 1
-                if self.state_ready:
-                    self.get_logger().info("✓ Robot state ready")
-                else:
-                    self.get_logger().warn(
-                        "⚠ State still not ready: publish odom, ensure map_server/static map "
-                        f"and localization provide TF {self.map_frame} -> {self.base_frame}."
-                    )
-        except Exception:
-            self.get_logger().warn("⚠ Timeout waiting for robot state.")
+        # Timers: state update (50Hz), planning (10Hz), control (50Hz)
+        self.state_timer = self.create_timer(0.02, self.state_update_cb)   # 50Hz TF2 pose
+        self.planning_timer = self.create_timer(0.1, self.planning_loop)   # 10Hz
+        self.control_timer = self.create_timer(0.02, self.control_loop)    # 50Hz
 
-        # Separate timers for planning (10Hz) and control (20Hz)
-        self.planning_timer = self.create_timer(0.1, self.planning_loop)  # 10Hz
-        self.control_timer = self.create_timer(0.02, self.control_loop)   # 20Hz
-
-        self.get_logger().info("HAA real-world planner node started:")
-        self.get_logger().info("  - Planning loop: 10Hz")
-        self.get_logger().info("  - Control loop: 50Hz")
-        self.get_logger().info(f"  - Map: {self._occ_topic}, odom: {self._odom_topic}, TF: {self.map_frame}->{self.base_frame}")
+        self.get_logger().info("Real-world HAA planner node started:")
+        self.get_logger().info("  - State update: 50Hz  (TF2 map→base_footprint + /odom velocity)")
+        self.get_logger().info("  - Planning loop: 10Hz (MPPI, 4s horizon)")
+        self.get_logger().info("  - Control loop:  50Hz (Kanayama tracker)")
+        self.get_logger().info("  - Map source: /map  (Cartographer OccupancyGrid)")
+        self.get_logger().info("  - Goal source: /move_base_simple/goal  (RViz2 '2D Goal Pose')")
+        self.get_logger().info("Waiting for /map and TF2 (map→base_footprint) to become available...")
         # rclpy.spin() called in main()
 
     def _time_to_sec(self, ros_time):
@@ -1089,7 +1053,7 @@ class HAARealWorldNavigationNode(Node):
             
             # Save Xopt history
             if hasattr(self, 'Xopt_history') and len(self.Xopt_history) > 0:
-                xopt_history_path = os.path.join(_planner_artifact_dir(), 'Xopt_history.npz')
+                xopt_history_path = os.path.join('/home/rant3/catkin_ws/src/turtlebot3_simulations/turtlebot3_gazebo/launch', 'Xopt_history.npz')
                 # Convert Xopt history to numpy arrays for saving
                 xopt_arrays = []
                 uopt_arrays = []
@@ -1416,7 +1380,7 @@ class HAARealWorldNavigationNode(Node):
             plt.tight_layout()
             
             # Save the plot
-            plot_path = os.path.join(_planner_artifact_dir(), 'first_haa_plan.png')
+            plot_path = os.path.join('/home/rant3/catkin_ws/src/turtlebot3_simulations/turtlebot3_gazebo/launch', 'first_haa_plan.png')
             plt.savefig(plot_path, dpi=300, bbox_inches='tight')
             plt.close()  # Close the figure to free memory
             
@@ -1448,37 +1412,89 @@ class HAARealWorldNavigationNode(Node):
         self.HAA_occupancy_map.y_max = msg.info.origin.position.y + msg.info.height * msg.info.resolution
         
         self.HAA_map_ready = True
-        self.get_logger().info("HAA map received: dynamic occupancy grid map built.")
+        self.get_logger().debug("HAA map received: dynamic occupancy grid map built.")
+        self._publish_inflation_map(msg)
 
-    def state_cb(self, msg: Odometry):
-        """Pose (x, y, theta) in map frame via TF; velocities from odometry twist.
+    def _publish_inflation_map(self, source_msg: OccupancyGrid):
+        """Publish /inflation_map for RViz2 visualisation of obstacle inflation zones.
 
-        Uses the latest map->base transform. Do not use the odom message time here:
-        it often falls outside the TF buffer and triggers extrapolation errors.
+        Cell values (OccupancyGrid 0-100 scale):
+          0   – free space          (white in RViz2)
+          20  – soft safety zone    (robot_radius + safe_distance, ~0.37 m) — light colour
+          60  – hard inflation zone (within robot_radius, ~0.22 m)           — darker colour
+          100 – raw obstacle cell   (reported by Cartographer SLAM)          — black
         """
-        self.v = float(msg.twist.twist.linear.x)
-        self.omega = float(msg.twist.twist.angular.z)
+        omap = self.HAA_occupancy_map
+        raw = omap.occupancy_grid                          # shape (H, W), int values
+        res = omap.resolution
 
+        # Fixed soft-zone distance kept in sync with plan() parameter
+        _soft_extra = 0.15          # metres beyond robot_radius
+        hard_radius_cells = int(self.robot_radius / res)
+        soft_radius_cells = int((self.robot_radius + _soft_extra) / res)
+
+        # Distance (in cells) from every free cell to the nearest obstacle cell
+        obstacle_mask = raw > 0.01   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
+        if np.any(obstacle_mask):
+            dist_cells = ndimage.distance_transform_edt(~obstacle_mask)
+        else:
+            dist_cells = np.full(raw.shape, 9999.0)
+
+        # Build visualisation layer
+        viz = np.zeros(raw.shape, dtype=np.int8)
+        viz[dist_cells <= soft_radius_cells] = 20    # soft safety zone (light)
+        viz[dist_cells <= hard_radius_cells] = 60    # hard inflation zone (darker)
+        viz[obstacle_mask] = 100                     # raw obstacle
+
+        out = OccupancyGrid()
+        out.header = source_msg.header               # same frame_id ("map") and stamp
+        out.info   = source_msg.info                 # same resolution, width, height, origin
+        out.data   = viz.flatten().tolist()
+        self.inflation_map_pub.publish(out)
+
+    def odom_cb(self, msg: Odometry):
+        """Update forward speed and yaw rate from wheel odometry (robot body frame)."""
+        self.v = msg.twist.twist.linear.x
+        self.omega = msg.twist.twist.angular.z
+
+    def state_update_cb(self):
+        """Look up map→base_footprint TF at 50 Hz to get map-frame pose."""
         try:
             t = self.tf_buffer.lookup_transform(
-                self.map_frame,
-                self.base_frame,
-                rclpy.time.Time(),
-                timeout=Duration(seconds=0.5),
+                'map',            # target frame (same as OccupancyGrid)
+                'base_footprint', # source frame (robot base)
+                rclpy.time.Time() # latest available transform
             )
-        except TransformException as ex:
-            self.get_logger().warn(
-                f"TF {self.map_frame} -> {self.base_frame} failed: {ex}",
-                throttle_duration_sec=2.0,
-            )
-            return
+            self.x = t.transform.translation.x
+            self.y = t.transform.translation.y
+            q = t.transform.rotation
+            _, _, self.theta = euler_from_quaternion([q.x, q.y, q.z, q.w])
+            self.state_ready = True
+        except (tf2_ros.LookupException,
+                tf2_ros.ConnectivityException,
+                tf2_ros.ExtrapolationException):
+            pass  # TF not available yet — keep waiting silently
 
-        self.x = t.transform.translation.x
-        self.y = t.transform.translation.y
-        q = t.transform.rotation
-        _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
-        self.theta = float(yaw)
-        self.state_ready = True
+    def goal_cb(self, msg: PoseStamped):
+        """Receive a new goal from RViz2 '2D Goal Pose' button."""
+        x = msg.pose.position.x
+        y = msg.pose.position.y
+        q = msg.pose.orientation
+        _, _, theta = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        self.goal = [x, y, theta, 0.0, 0.0]
+        self.goal_temp = self.goal.copy()
+        self.goal_received = True
+        self.target_reached = False
+        self.trajectory_ready = False
+        self.HAA_mppi_planner = None   # reset warm-start so MPPI plans fresh toward new goal
+        self.step = 0
+        self.state_traj = []
+        self._goal_wait_logged = False
+        self.kanayama_controller.reset_integral_errors()
+        self.get_logger().info(
+            f"New goal from RViz2: x={x:.3f} m, y={y:.3f} m, theta={np.degrees(theta):.1f} deg"
+        )
 
     def planning_loop(self, event=None):
         """HAA-only planning loop: Use HAA planner all the time, stop if no feasible solution."""
@@ -1489,9 +1505,19 @@ class HAARealWorldNavigationNode(Node):
         # Check if all required data is ready
         if not (self.HAA_map_ready and self.state_ready):
             if not self.HAA_map_ready:
-                self.get_logger().warn("HAA map not ready")
+                self.get_logger().warn("HAA map not ready — waiting for /map from Cartographer")
             if not self.state_ready:
-                self.get_logger().warn("State not ready")
+                self.get_logger().warn("State not ready — waiting for TF2 map→base_footprint")
+            return
+
+        # Wait for an explicit goal from RViz2 before planning
+        if not self.goal_received:
+            if not self._goal_wait_logged:
+                self.get_logger().info(
+                    "Ready. Set a goal using '2D Goal Pose' button in RViz2 "
+                    "(publishes to /move_base_simple/goal)."
+                )
+                self._goal_wait_logged = True
             return
 
         # current state
@@ -1515,18 +1541,18 @@ class HAARealWorldNavigationNode(Node):
         # Check if target is reached
         dist = np.linalg.norm(np.array(x_true[:2]) - np.array(self.goal_temp[:2]))
         if dist < 0.1 and not self.target_reached:
-            self.get_logger().info("Target reached in planning loop. Shutting down both loops...")
             self.target_reached = True
-            
-            # Save trajectory plot
-            self.save_trajectory_plot()
-            
-            # Stop robot
             self.publish_stop_command()
-            
-            # Stop both loops
-            self._stop_timers()
-            rclpy.shutdown()  # "Target reached successfully"
+            self.save_trajectory_plot()
+            # Reset for next goal — keep node alive
+            self.goal_received = False
+            self.trajectory_ready = False
+            self.HAA_mppi_planner = None
+            self._goal_wait_logged = False
+            self.get_logger().info(
+                f"Goal reached! (distance={dist:.3f} m). "
+                "Robot stopped. Set next goal via '2D Goal Pose' in RViz2."
+            )
             return
 
         try:
@@ -1556,7 +1582,7 @@ class HAARealWorldNavigationNode(Node):
                     a_min=-self.a_limit, a_max=self.a_limit,
                     alpha_min=-self.alpha_limit, alpha_max=self.alpha_limit,
                     smoothing_weight=0.1,
-                    logger=self.get_logger(),
+                    logger=self.get_logger()
                 )
                 self.get_logger().info("HAA planner initialized (4s horizon, dynamic map).")
             
@@ -1567,39 +1593,79 @@ class HAARealWorldNavigationNode(Node):
             # === HAA PLANNING ===
             #all planning uses x0, not x_true
             haa_current_state = RobotState(x=x0[0], y=x0[1], theta=x0[2], v=x0[3], w=x0[4])
-            
+
+            # --- diagnostic: clearance from robot centre to nearest obstacle ---
+            omap = self.HAA_occupancy_map
+            gx, gy = omap.world_to_grid(x0[0], x0[1])
+            in_bounds = (0 <= gx < omap.grid_width and 0 <= gy < omap.grid_height)
+            if in_bounds:
+                occ_val = int(omap.occupancy_grid[gy, gx])
+                obstacle_mask = omap.occupancy_grid > 0.01
+                dist_cells = ndimage.distance_transform_edt(~obstacle_mask)[gy, gx]
+                clearance_m = dist_cells * omap.resolution
+                inflation_cells = int(self.robot_radius / omap.resolution)
+                # Use one-cell tolerance to avoid false positives from grid quantization.
+                # E.g. at 0.05 m/cell the nearest discrete distance below 0.22 m is 0.212 m
+                # (sqrt(18)×0.05), which may occur even when the robot is physically safe.
+                start_in_collision = clearance_m < (self.robot_radius - omap.resolution)
+                # Log nav status every step (10 Hz) — concise single line
+                self.get_logger().info(
+                    f"step={self.step:4d} | pos=({x0[0]:.3f},{x0[1]:.3f}) "
+                    f"θ={np.degrees(x0[2]):.1f}° v={x0[3]:.3f} w={x0[4]:.3f} | "
+                    f"dist_goal={dist:.3f}m | clearance={clearance_m:.3f}m "
+                    f"(inflation={inflation_cells} cells={self.robot_radius:.2f}m) | "
+                    f"grid=({gx},{gy}) occ={occ_val}"
+                    + (" *** IN COLLISION ZONE ***" if start_in_collision else "")
+                )
+                if start_in_collision:
+                    self.get_logger().error(
+                        f"Robot is inside the inflated obstacle zone "
+                        f"(clearance {clearance_m:.3f}m < robot_radius {self.robot_radius:.3f}m). "
+                        "All MPPI trajectories will fail. "
+                        "Manually back the robot away from the obstacle, then set a new goal."
+                    )
+            else:
+                self.get_logger().error(
+                    f"Robot position ({x0[0]:.3f},{x0[1]:.3f}) is OUTSIDE map bounds "
+                    f"[x={omap.x_min:.2f}..{omap.x_max:.2f}, y={omap.y_min:.2f}..{omap.y_max:.2f}]. "
+                    "TF2 pose or map origin may be incorrect."
+                )
+
             haa_start_time = time.time()
-            haa_Xopt, haa_Uopt = self.HAA_mppi_planner.plan(haa_current_state, np.array(self.goal_temp[:2]), debug_plot=True, robot_radius=self.robot_radius)
+            haa_Xopt, haa_Uopt = self.HAA_mppi_planner.plan(haa_current_state, np.array(self.goal_temp[:2]), debug_plot=False, robot_radius=self.robot_radius)
             haa_end_time = time.time()
-            
+
             # Check HAA feasibility
-            haa_feasible = (haa_Xopt is not None and haa_Uopt is not None and 
+            haa_feasible = (haa_Xopt is not None and haa_Uopt is not None and
                           len(haa_Xopt) > 0 and len(haa_Uopt) > 0)
-            
+
             if haa_feasible:
                 self.current_trajectory = haa_Xopt
                 self.current_controls = haa_Uopt
                 self.trajectory_start_time = self.get_clock().now()
                 self.trajectory_ready = True
-                self.get_logger().info(f"HAA planning time: {haa_end_time - haa_start_time:.6f}s")
+                self.get_logger().debug(f"HAA planning time: {haa_end_time - haa_start_time:.6f}s")
                 
                 # Plot first plan
                 if self.first_plan:
                     #self.save_first_plan_plot(haa_Xopt, haa_Uopt, haa_current_state, self.goal_temp[:2])
                     self.first_plan = False  # Only plot the first plan
             else:
-                # HAA planning failed - stop immediately
-                self.get_logger().warn("HAA planning failed - no feasible solution found")
-                self.get_logger().info(f'HAA planning failed state: x={haa_current_state.x:.3f}, y={haa_current_state.y:.3f}, theta={haa_current_state.theta:.3f}, v={haa_current_state.v:.3f}, w={haa_current_state.w:.3f}')
+                # HAA planning failed — stop robot and wait for new goal
+                self.get_logger().warn("HAA planning failed — no feasible trajectory found")
+                self.get_logger().info(
+                    f'State at failure: x={haa_current_state.x:.3f}, y={haa_current_state.y:.3f}, '
+                    f'theta={haa_current_state.theta:.3f}, v={haa_current_state.v:.3f}, w={haa_current_state.w:.3f}'
+                )
                 self.trajectory_ready = False
-                self.shutdown_requested = True
-                # Save trajectory plot
-                #self.save_trajectory_plot()
-                # Stop robot
                 self.publish_stop_command()
-                # Stop both loops
-                self._stop_timers()
-                rclpy.shutdown()  # "HAA planner found no feasible solution"
+                # Reset so user can set a new goal
+                self.goal_received = False
+                self.HAA_mppi_planner = None
+                self._goal_wait_logged = False
+                self.get_logger().warn(
+                    "Robot stopped. Check map/obstacles and set a new goal via RViz2."
+                )
                 return
             
             # Store Xopt history
@@ -1619,16 +1685,14 @@ class HAARealWorldNavigationNode(Node):
             self.kanayama_controller.reset_integral_errors()
             
         except Exception as e:
-            self.get_logger().error(f"Planning failed at step {self.step}: {e}")
-            # Save failure data to disk
-            print(self.failure_path)
+            self.get_logger().error(f"Planning exception at step {self.step}: {e}")
             np.savez(self.failure_path, x0=x0, goal=self.goal_temp, occ=self.HAA_raw_occ)
-            self.get_logger().info("Saved failure data: x0, goal, and raw occupancy grid.")
-            self.get_logger().info(f"x0: {x0}, goal: {self.goal_temp}")
-            # Stop robot
+            self.get_logger().info(f"Failure data saved to {self.failure_path}")
             self.publish_stop_command()
-            # Stop control loop
-            self._stop_timers()
+            # Reset so user can set a new goal without restarting the node
+            self.goal_received = False
+            self.HAA_mppi_planner = None
+            self._goal_wait_logged = False
             return
 
         self.step += 1
@@ -1685,9 +1749,11 @@ class HAARealWorldNavigationNode(Node):
         if self.shutdown_requested:
             return
         
-        if not (self.state_ready and self.trajectory_ready):
-            self.get_logger().warn("State or trajectory not ready")
+        if not self.state_ready:
+            self.get_logger().warn("Control loop: state not ready (TF2 unavailable)")
             return
+        if not self.trajectory_ready:
+            return  # silently wait — either no goal yet or planning in progress
         
         current_time = self.get_clock().now()
         ref_state = self.get_reference_state(current_time)
@@ -1742,7 +1808,7 @@ class HAARealWorldNavigationNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = HAARealWorldNavigationNode()
+    node = HAANavigationNode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
