@@ -599,7 +599,7 @@ class MPPIPlanner:
             
             # Count violations per trajectory and apply penalty
             violations_per_trajectory = np.sum(violation_matrix, axis=1)  # Sum violations per trajectory
-            near_obstacle_penalty = violations_per_trajectory * 30  # Penalty per violation (high weight to steer away from obstacles)
+            near_obstacle_penalty = violations_per_trajectory * 5  # Per-step soft-zone penalty; higher = wider detours, lower = tighter paths
             rewards -= near_obstacle_penalty
         
         # Add control smoothing penalty if control sequences are provided
@@ -703,7 +703,7 @@ class MPPIPlanner:
                 valid_trajectories = all_trajectories[valid_mask]
                 
                 # Pre-compute safety-dilated grid for near-obstacle penalty (compute once per planning iteration)
-                safe_distance = 0.15  # meters - soft safety zone: MPPI steered away from obstacles earlier
+                safe_distance = 0.10  # meters beyond robot_radius — soft penalty zone for near-obstacle cost
                 total_safety_radius = robot_radius + safe_distance
                 safety_radius_cells = int(total_safety_radius / self.occupancy_map.resolution)
                 safety_dilated_grid = self.occupancy_map.dilate_grid_new(safety_radius_cells)
@@ -791,8 +791,8 @@ class KanayamaController:
         # Time step for integral calculation
         self.dt = 0.02  # 50Hz control loop
         
-        self.v_limit_haa = 0.14
-        self.omega_limit_haa = 0.9
+        self.v_limit_haa = 0.20
+        self.omega_limit_haa = 1.22
         
         # Previous reference velocities for feedforward
         self.prev_v_ref = 0.0
@@ -991,6 +991,14 @@ class HAANavigationNode(Node):
         self.theta = 0.0
         self.v = 0.0
         self.omega = 0.0
+
+        # World-frame velocity: computed by differencing map-frame TF2 pose at 50 Hz
+        self.vx_world = 0.0   # m/s in map +X direction
+        self.vy_world = 0.0   # m/s in map +Y direction
+        self.w_world  = 0.0   # rad/s yaw rate (same value in body and world frame)
+        self._x_prev   = None  # previous TF2 x for differentiation
+        self._y_prev   = None
+        self._th_prev  = None
 
         # Goal management: wait for explicit goal from RViz2 before planning
         self.goal_received = False
@@ -1429,7 +1437,7 @@ class HAANavigationNode(Node):
         res = omap.resolution
 
         # Fixed soft-zone distance kept in sync with plan() parameter
-        _soft_extra = 0.15          # metres beyond robot_radius
+        _soft_extra = 0.05          # metres beyond robot_radius
         hard_radius_cells = int(self.robot_radius / res)
         soft_radius_cells = int((self.robot_radius + _soft_extra) / res)
 
@@ -1458,17 +1466,34 @@ class HAANavigationNode(Node):
         self.omega = msg.twist.twist.angular.z
 
     def state_update_cb(self):
-        """Look up map→base_footprint TF at 50 Hz to get map-frame pose."""
+        """Look up map→base_footprint TF at 50 Hz to get map-frame pose and velocity."""
         try:
             t = self.tf_buffer.lookup_transform(
                 'map',            # target frame (same as OccupancyGrid)
                 'base_footprint', # source frame (robot base)
                 rclpy.time.Time() # latest available transform
             )
-            self.x = t.transform.translation.x
-            self.y = t.transform.translation.y
+            x_new = t.transform.translation.x
+            y_new = t.transform.translation.y
             q = t.transform.rotation
-            _, _, self.theta = euler_from_quaternion([q.x, q.y, q.z, q.w])
+            _, _, th_new = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+            # Compute world-frame velocity by finite difference (dt = 0.02 s at 50 Hz)
+            if self._x_prev is not None:
+                _dt = 0.02
+                self.vx_world = (x_new  - self._x_prev) / _dt
+                self.vy_world = (y_new  - self._y_prev) / _dt
+                # Wrap angle difference to [-π, π] before dividing
+                dth = th_new - self._th_prev
+                dth = (dth + np.pi) % (2 * np.pi) - np.pi
+                self.w_world = dth / _dt
+
+            self.x = x_new
+            self.y = y_new
+            self.theta = th_new
+            self._x_prev  = x_new
+            self._y_prev  = y_new
+            self._th_prev = th_new
             self.state_ready = True
         except (tf2_ros.LookupException,
                 tf2_ros.ConnectivityException,
@@ -1565,7 +1590,7 @@ class HAANavigationNode(Node):
                 # HAA: 4-second horizon (40 nodes at 0.1s dt)
                 haa_horizon = self.N_haa  # 4 seconds
                 haa_mppi = MPPI(
-                    sigma=1,
+                    sigma=2,           # higher noise = more diverse path exploration
                     temperature=0.1,
                     num_nodes=haa_horizon,
                     num_rollouts=1000,
@@ -1608,10 +1633,13 @@ class HAANavigationNode(Node):
                 # E.g. at 0.05 m/cell the nearest discrete distance below 0.22 m is 0.212 m
                 # (sqrt(18)×0.05), which may occur even when the robot is physically safe.
                 start_in_collision = clearance_m < (self.robot_radius - omap.resolution)
+                # World-frame speed magnitude and yaw rate (from TF2 pose differentiation)
+                speed_world = np.hypot(self.vx_world, self.vy_world)
                 # Log nav status every step (10 Hz) — concise single line
                 self.get_logger().info(
                     f"step={self.step:4d} | pos=({x0[0]:.3f},{x0[1]:.3f}) "
-                    f"θ={np.degrees(x0[2]):.1f}° v={x0[3]:.3f} w={x0[4]:.3f} | "
+                    f"θ={np.degrees(x0[2]):.1f}° "
+                    f"vx={self.vx_world:.3f} vy={self.vy_world:.3f} spd={speed_world:.3f} w={self.w_world:.3f} | "
                     f"dist_goal={dist:.3f}m | clearance={clearance_m:.3f}m "
                     f"(inflation={inflation_cells} cells={self.robot_radius:.2f}m) | "
                     f"grid=({gx},{gy}) occ={occ_val}"

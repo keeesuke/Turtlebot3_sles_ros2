@@ -40,6 +40,8 @@ ros2 topic echo /spacenav/offset
 cd /home/acrl/sles/Turtlebot3_sles_ros2/src/turtlebot3_sles_control/turtlebot3_sles_spacemouse_control
 python3 spacemouse_relay.py
 
+# or just teleop command
+ros2 run turtlebot3_teleop teleop_keyboard
 
 ##### robot raspberry pi #####
 
@@ -75,7 +77,7 @@ ros2 launch nav2_bringup bringup_launch.py \
   params_file:=$HOME/sles/Turtlebot3_sles_ros2/nav2/nav2_params_real.yaml
 
 # occupancy grid generation (this is for MPC)
-ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=True
+ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=false resolution:=0.02
 
 # check frame tree
 ros2 run tf2_tools view_frames
