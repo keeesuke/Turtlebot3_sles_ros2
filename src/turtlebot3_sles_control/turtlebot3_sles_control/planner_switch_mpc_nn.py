@@ -216,7 +216,8 @@ class OccupancyGridMap:
         # Plot occupancy grid
         im = ax.imshow(binary_grid, 
                       origin='lower', 
-                      cmap='hot',
+                      # Use "gray_r": 0 => white (free), 1 => black (occupied)
+                      cmap='gray_r',
                       extent=[self.x_min, self.x_max, self.y_min, self.y_max],
                       vmin=0, vmax=1)
         

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.time import Time
 import numpy as np
-from nav_msgs.msg import OccupancyGrid, Odometry
+from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import Twist, PoseStamped
+
 from tf_transformations import euler_from_quaternion
 import tf2_ros
 import os
@@ -163,7 +165,7 @@ class OccupancyGridMap:
     
     def dilate_grid_new(self, robot_radius_cells):
         """Optimized dilation using distance transform - much faster for large radii."""
-        obstacle_mask = self.occupancy_grid > 0.01
+        obstacle_mask = self.occupancy_grid > 50
         
         # Early exit: no obstacles
         if not np.any(obstacle_mask):
@@ -219,13 +221,14 @@ class OccupancyGridMap:
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
         
-        # Convert to binary: > 60 = occupied (1), otherwise = free (0)
-        binary_grid = (self.occupancy_grid > 60).astype(int)
+        # Convert to binary: > 10 = occupied (1), otherwise = free (0)
+        binary_grid = (self.occupancy_grid > 50).astype(int)
         
         # Plot occupancy grid
         im = ax.imshow(binary_grid, 
                       origin='lower', 
-                      cmap='hot',
+                      # Use "gray_r": 0 => white (free), 1 => black (occupied)
+                      cmap='gray_r',
                       extent=[self.x_min, self.x_max, self.y_min, self.y_max],
                       vmin=0, vmax=1)
         
@@ -298,7 +301,7 @@ class MPPIPlanner:
         self.occupancy_map = new_occupancy_map
         # Keep all other state (nominal_controls, previous_controls, etc.) intact
     
-    def debug_plot_no_valid_trajectories(self, start_state, goal, sampled_controls, nominal_controls, all_trajectories, valid_mask):
+    def debug_plot_no_valid_trajectories(self, start_state, goal, sampled_controls, nominal_controls, all_trajectories, valid_mask, title_override=None):
         """Debug function to plot trajectories when no valid ones are found."""
         try:
             num_valid = np.sum(valid_mask)
@@ -376,92 +379,131 @@ class MPPIPlanner:
             self._log_warn(f"  Collision + angular-vel: {collision_angularv:4d} ({collision_angularv/num_total*100:.1f}%)")
             self._log_warn(f"  Control only:            {control_only:4d} ({control_only/num_total*100:.1f}%)")
             self._log_warn(f"  Other:                   {other_violations:4d} ({other_violations/num_total*100:.1f}%)")
-            # Create debug plots - two subplots
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-            
-            # Plot 1: Occupancy grid with trajectories
-            self.occupancy_map.visualize(ax1)
-            ax1.set_title(f'MPPI Debug - No Valid Trajectories ({num_valid}/{num_total})')
-            
-            # Plot all sampled trajectories
-            for i in range(min(50, num_total)):  # Limit to 50 for visibility
-                trajectory = all_trajectories[i]
-                is_valid = valid_mask[i]
-                
-                # Extract x, y coordinates
-                traj_x = trajectory[:, 0]
-                traj_y = trajectory[:, 1]
-                
-                # Plot trajectory with different colors for valid/invalid
-                color = 'green' if is_valid else 'red'
-                alpha = 0.8 if is_valid else 0.3
-                linewidth = 1 if is_valid else 0.5
-                
-                ax1.plot(traj_x, traj_y, color=color, alpha=alpha, linewidth=linewidth)
-                
-                # Mark start and end points
-                ax1.plot(traj_x[0], traj_y[0], 'o', color=color, markersize=4)
-                ax1.plot(traj_x[-1], traj_y[-1], 's', color=color, markersize=4)
-            
-            # Plot start and goal
-            ax1.plot(start_state.x, start_state.y, 'go', markersize=10, label='Start')
-            ax1.plot(goal[0], goal[1], 'ro', markersize=10, label='Goal')
-            
-            # Add legend
-            ax1.legend(['Valid trajectories', 'Invalid trajectories', 'Start', 'Goal'])
-            ax1.grid(True, alpha=0.3)
-            
-            # Plot 2: Occupancy grid only with robot position
-            self.occupancy_map.visualize(ax2)
-            ax2.set_title('Occupancy Grid Map with Robot Position')
-            
-            # Plot robot position with orientation
-            ax2.plot(start_state.x, start_state.y, 'go', markersize=15, label='Robot Position', markeredgecolor='black', markeredgewidth=2)
-            
-            # Draw robot orientation arrow
-            arrow_length = 0.2
-            dx = arrow_length * np.cos(start_state.theta)
-            dy = arrow_length * np.sin(start_state.theta)
-            ax2.arrow(start_state.x, start_state.y, dx, dy, 
-                     head_width=0.05, head_length=0.05, fc='green', ec='green', linewidth=2)
-            
-            # Plot goal
-            ax2.plot(goal[0], goal[1], 'ro', markersize=15, label='Goal', markeredgecolor='black', markeredgewidth=2)
-            
-            # Add robot radius circle
-            robot_radius = 0.22
-            circle = plt.Circle((start_state.x, start_state.y), robot_radius, 
-                              fill=False, color='green', linestyle='--', linewidth=2, alpha=0.7)
-            ax2.add_patch(circle)
-            
-            # Add current system state information as text box
-            state_text = (f'Current System State:\n'
-                         f'x = {start_state.x:.3f} m\n'
-                         f'y = {start_state.y:.3f} m\n'
-                         f'θ = {start_state.theta:.3f} rad ({np.degrees(start_state.theta):.1f}°)\n'
-                         f'v = {start_state.v:.3f} m/s\n'
-                         f'ω = {start_state.w:.3f} rad/s')
-            
-            # Get axis limits for positioning text
-            xlim = ax2.get_xlim()
-            ylim = ax2.get_ylim()
-            # Position text in upper left corner
-            text_x = xlim[0] + 0.05 * (xlim[1] - xlim[0])
-            text_y = ylim[1] - 0.15 * (ylim[1] - ylim[0])
-            
-            ax2.text(text_x, text_y, state_text, 
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
-                    fontsize=10, verticalalignment='top', family='monospace')
-            
-            # Add legend and grid
-            ax2.legend(['Robot Position', 'Goal', 'Robot Radius'])
-            ax2.grid(True, alpha=0.3)
+            # ── Create debug figure: left=map+trajectories, right=violation breakdown ──
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(22, 10))
+
+            # ── ax1: occupancy map with inflation zones as background ──────────────
+            omap = self.occupancy_map
+            raw  = omap.occupancy_grid
+            res  = omap.resolution
+            _robot_r   = 0.15    # keep in sync with robot_radius param
+            _safe_dist = 0.10    # keep in sync with plan() safe_distance
+            hard_r = int(_robot_r / res)
+            soft_r = int((_robot_r + _safe_dist) / res)
+            obstacle_mask = raw > 10
+            if np.any(obstacle_mask):
+                dist_c = ndimage.distance_transform_edt(~obstacle_mask)
+            else:
+                dist_c = np.full(raw.shape, 9999.0)
+            rgba = np.ones((*raw.shape, 4), dtype=float)
+            rgba[dist_c <= soft_r] = [1.0, 1.0, 0.45, 1.0]   # soft zone: light yellow
+            rgba[dist_c <= hard_r] = [1.0, 0.55, 0.10, 1.0]   # hard zone: orange
+            rgba[obstacle_mask]    = [0.15, 0.15, 0.15, 1.0]  # obstacle: near-black
+            ax1.imshow(rgba, extent=[omap.x_min, omap.x_max, omap.y_min, omap.y_max],
+                       origin='lower', aspect='equal', zorder=0)
+
+            # ── ax1: plot up to 120 invalid trajectories (thin red, transparent) ──
+            invalid_indices = np.where(~valid_mask)[0]
+            for i in invalid_indices[:120]:
+                traj = all_trajectories[i]
+                ax1.plot(traj[:, 0], traj[:, 1], color='red', alpha=0.18, linewidth=0.6, zorder=1)
+
+            # ── ax1: plot up to 30 valid trajectories (thin green) ────────────────
+            valid_indices = np.where(valid_mask)[0]
+            for i in valid_indices[:30]:
+                traj = all_trajectories[i]
+                ax1.plot(traj[:, 0], traj[:, 1], color='limegreen', alpha=0.55, linewidth=0.9, zorder=2)
+
+            # ── ax1: highlight nominal trajectory (index 0) in bold blue ──────────
+            nom_traj = all_trajectories[0]
+            ax1.plot(nom_traj[:, 0], nom_traj[:, 1], color='royalblue', linewidth=2.5,
+                     zorder=3, label='_nolegend_')
+
+            # ── ax1: robot position + orientation arrow ───────────────────────────
+            ax1.plot(start_state.x, start_state.y, 'o', color='cyan',
+                     markersize=10, markeredgecolor='black', markeredgewidth=1.5, zorder=5)
+            arr_len = max(0.15, _robot_r * 1.2)
+            ax1.annotate('', xy=(start_state.x + arr_len * np.cos(start_state.theta),
+                                  start_state.y + arr_len * np.sin(start_state.theta)),
+                          xytext=(start_state.x, start_state.y),
+                          arrowprops=dict(arrowstyle='->', color='cyan', lw=2.0), zorder=5)
+
+            # ── ax1: hard-zone circle around robot (shows what MPPI discards) ─────
+            ax1.add_patch(patches.Circle((start_state.x, start_state.y), _robot_r,
+                                          fill=False, edgecolor='orange',
+                                          linestyle='--', linewidth=1.8, zorder=4))
+            ax1.add_patch(patches.Circle((start_state.x, start_state.y), _robot_r + _safe_dist,
+                                          fill=False, edgecolor='gold',
+                                          linestyle=':', linewidth=1.5, zorder=4))
+
+            # ── ax1: goal marker ──────────────────────────────────────────────────
+            ax1.plot(goal[0], goal[1], 'r*', markersize=16,
+                     markeredgecolor='darkred', markeredgewidth=1, zorder=5)
+
+            # ── ax1: legend with proxy artists ───────────────────────────────────
+            proxy_invalid  = plt.Line2D([0], [0], color='red',       lw=1.5, alpha=0.6,  label=f'Invalid ({len(invalid_indices)}, showing ≤120)')
+            proxy_valid    = plt.Line2D([0], [0], color='limegreen',  lw=1.5, alpha=0.8,  label=f'Valid ({num_valid}, showing ≤30)')
+            proxy_nominal  = plt.Line2D([0], [0], color='royalblue',  lw=2.5,             label='Nominal trajectory')
+            proxy_robot    = plt.Line2D([0], [0], marker='o', color='cyan', lw=0, markersize=9, label='Robot position')
+            proxy_goal     = plt.Line2D([0], [0], marker='*', color='red',  lw=0, markersize=12, label='Goal')
+            proxy_hard     = patches.Patch(facecolor=[1.0,0.55,0.10], label=f'Hard zone (r={_robot_r}m) — trajectories touching this are DISCARDED')
+            proxy_soft     = patches.Patch(facecolor=[1.0,1.0,0.45], label=f'Soft zone (+{_safe_dist}m) — trajectories here are PENALISED')
+            proxy_obs      = patches.Patch(facecolor=[0.15,0.15,0.15], label='Obstacle (raw map)')
+            ax1.legend(handles=[proxy_invalid, proxy_valid, proxy_nominal,
+                                  proxy_robot, proxy_goal,
+                                  proxy_hard, proxy_soft, proxy_obs],
+                        fontsize=8, loc='upper right')
+            _plot_title = title_override if title_override else f'MPPI — No Valid Trajectories  ({num_valid}/{num_total} valid)'
+            ax1.set_title(f'{_plot_title}\nnominal traj in blue; up to 120 invalid (red) + 30 valid (green)',
+                           fontsize=10)
+            ax1.set_xlabel('X (m)')
+            ax1.set_ylabel('Y (m)')
+            ax1.grid(True, alpha=0.25)
+
+            # ── ax2: violation breakdown bar chart ────────────────────────────────
+            categories  = ['Collision\nonly', 'Lin-vel\nonly', 'Ang-vel\nonly',
+                           'Collision\n+lin-vel', 'Collision\n+ang-vel',
+                           'Control\nonly', 'Other']
+            counts      = [collision_only, linear_velocity_only, angular_velocity_only,
+                           collision_linearv, collision_angularv, control_only, other_violations]
+            bar_colors  = ['#d62728', '#ff7f0e', '#9467bd',
+                           '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22']
+            bars = ax2.bar(categories, counts, color=bar_colors, edgecolor='black', linewidth=0.7)
+
+            # Annotate bar tops with count + percentage
+            for bar, cnt in zip(bars, counts):
+                if cnt > 0:
+                    pct = cnt / num_total * 100
+                    ax2.text(bar.get_x() + bar.get_width() / 2.0,
+                              bar.get_height() + num_total * 0.005,
+                              f'{cnt}\n({pct:.1f}%)',
+                              ha='center', va='bottom', fontsize=9)
+
+            ax2.set_ylabel('Number of trajectories')
+            ax2.set_title(f'Why trajectories were invalidated\n'
+                           f'Total={num_total}  |  Valid={num_valid}  |  Invalid={num_total - num_valid}',
+                           fontsize=10)
+            ax2.grid(axis='y', alpha=0.4)
+
+            # State info text box below the bar chart
+            state_text = (f'Robot state at planning instant:\n'
+                          f'  x = {start_state.x:.3f} m\n'
+                          f'  y = {start_state.y:.3f} m\n'
+                          f'  θ = {start_state.theta:.3f} rad  ({np.degrees(start_state.theta):.1f}°)\n'
+                          f'  v = {start_state.v:.3f} m/s\n'
+                          f'  ω = {start_state.w:.3f} rad/s\n\n'
+                          f'Goal: ({goal[0]:.3f}, {goal[1]:.3f}) m\n'
+                          f'Dist to goal: {np.hypot(start_state.x - goal[0], start_state.y - goal[1]):.3f} m')
+            ax2.text(0.02, 0.98, state_text,
+                      transform=ax2.transAxes,
+                      bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.85),
+                      fontsize=9, verticalalignment='top', family='monospace')
             
             plt.tight_layout()
             
             # Save the plot in the specified directory with timestamp
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            debug_path = os.path.join('/home/rant3/catkin_ws/src/turtlebot3_simulations/turtlebot3_gazebo/launch', f'mppi_no_valid_trajectories_debug_{timestamp}.png')
+            debug_path = os.path.join(os.getcwd(), f'mppi_no_valid_trajectories_debug_{timestamp}.png')
             plt.savefig(debug_path, dpi=300, bbox_inches='tight')
             plt.close()  # Close the figure to free memory
             
@@ -495,10 +537,11 @@ class MPPIPlanner:
             a = control_sequences[:, i, 0]
             alpha = control_sequences[:, i, 1]
             
-            # Update velocities
-            new_v = v + a * self.dynamics.dt
-            new_w = w + alpha * self.dynamics.dt
-            
+            # Update velocities and clamp to hardware limits (mirrors real motor behaviour;
+            # the hardware caps velocity — it does not "fail" when the limit is reached)
+            new_v = np.clip(v + a * self.dynamics.dt, self.v_min, self.v_max)
+            new_w = np.clip(w + alpha * self.dynamics.dt, self.w_min, self.w_max)
+
             # Update positions and orientation
             new_x = x + v * np.cos(theta) * self.dynamics.dt
             new_y = y + v * np.sin(theta) * self.dynamics.dt
@@ -518,12 +561,9 @@ class MPPIPlanner:
         num_rollouts, num_steps, _ = trajectories.shape
         valid_mask = np.ones(num_rollouts, dtype=bool)
         
-        # Check velocity constraints for all trajectories at once
-        v_violations = (trajectories[:, :, 3] < self.v_min) | (trajectories[:, :, 3] > self.v_max)
-        w_violations = (trajectories[:, :, 4] < self.w_min) | (trajectories[:, :, 4] > self.w_max)
-        velocity_violations = np.any(v_violations | w_violations, axis=1)
-        valid_mask &= ~velocity_violations
-        
+        # Velocity constraints are now enforced by clamping inside simulate_trajectories_vectorized,
+        # so no trajectory can violate them. Collision checking is the sole discard criterion.
+
         # Vectorized collision checking using occupancy grid
         if np.any(valid_mask):
             # Extract all positions for valid trajectories
@@ -678,7 +718,7 @@ class MPPIPlanner:
         
         # MPPI iterations
         mppi_iterations_time = time.time()
-        for iteration in range(3):  # 3 iterations per planning cycle for better convergence around obstacles
+        for iteration in range(1):  # 3 iterations per planning cycle for better convergence around obstacles
             iteration_start = time.time()
             
             # Sample control sequences
@@ -727,7 +767,9 @@ class MPPIPlanner:
                 self.previous_controls = nominal_controls.copy()
                 
             else:
-                # If no valid trajectories found, debug plot and return None
+                # If no valid trajectories found, clear warm-start so next cycle cold-starts
+                # toward the goal instead of repeating the same stuck nominal.
+                self.previous_controls = None
                 self._log_warn("No valid trajectories found!")
                 if debug_plot:
                     self.debug_plot_no_valid_trajectories(start_state, goal, sampled_controls, nominal_controls, all_trajectories, valid_mask)
@@ -744,6 +786,19 @@ class MPPIPlanner:
         end_time = time.time()
         total_time = end_time - start_time
         return best_trajectory, nominal_controls
+
+    def sample_debug_trajectories(self, start_state: RobotState, goal: np.ndarray, robot_radius: float):
+        """Sample a fresh batch of trajectories for debug visualisation.
+        Does NOT update self.previous_controls — safe to call at any time."""
+        nominal = self.previous_controls.copy() if self.previous_controls is not None \
+                  else np.zeros((self.mppi.num_nodes, 2))
+        sampled = self.mppi.sample_control_knots(nominal)
+        sampled[:, :, 0] = np.clip(sampled[:, :, 0], self.a_min, self.a_max)
+        sampled[:, :, 1] = np.clip(sampled[:, :, 1], self.alpha_min, self.alpha_max)
+        all_trajs  = self.simulate_trajectories_vectorized(start_state, sampled)
+        valid_mask = self.validate_trajectories_vectorized(all_trajs, robot_radius)
+        return sampled, nominal, all_trajs, valid_mask
+
 
 class KanayamaController:
     """Kanayama/Samson-style unicycle tracking controller with integral action."""
@@ -791,8 +846,8 @@ class KanayamaController:
         # Time step for integral calculation
         self.dt = 0.02  # 50Hz control loop
         
-        self.v_limit_haa = 0.20
-        self.omega_limit_haa = 1.22
+        self.v_limit_haa = 0.14
+        self.omega_limit_haa = 0.9
         
         # Previous reference velocities for feedforward
         self.prev_v_ref = 0.0
@@ -956,9 +1011,15 @@ class HAANavigationNode(Node):
         # Control command history storage
         self.control_command_history = []
         
-        # Low-pass filter state for v_cmd and w_cmd
+        # Low-pass filter state and rate-limiter memory for v_cmd / w_cmd
         self.v_cmd_filtered = 0.0
         self.w_cmd_filtered = 0.0
+        self.v_cmd_prev = 0.0   # previous published v (for rate limiting)
+        self.w_cmd_prev = 0.0
+
+        # Sliding-window pose history for TF2-based velocity estimation
+        # Stores (t_sec, x, y, theta) tuples; window = 0.2 s
+        self._pose_history = []
         
         # Kanayama controller parameters
         self.kx = self.get_parameter('kx').value  # default: 1.0
@@ -991,8 +1052,7 @@ class HAANavigationNode(Node):
         self.theta = 0.0
         self.v = 0.0
         self.omega = 0.0
-
-        # World-frame velocity: computed by differencing map-frame TF2 pose at 50 Hz
+        # World-frame velocity: computed by differencing map-frame TF2 pose at 100 Hz
         self.vx_world = 0.0   # m/s in map +X direction
         self.vy_world = 0.0   # m/s in map +Y direction
         self.w_world  = 0.0   # rad/s yaw rate (same value in body and world frame)
@@ -1004,6 +1064,12 @@ class HAANavigationNode(Node):
         self.goal_received = False
         self._goal_wait_logged = False  # log "waiting for goal" only once per wait cycle
 
+        # Stuck detection: abort goal if robot makes no position progress for too long
+        self._stuck_timeout_sec   = 6.0   # seconds without progress → abort
+        self._stuck_threshold_m   = 0.1   # metres — "progress" means moving at least this far
+        self._stuck_last_prog_time = None  # wall-clock seconds at last progress event
+        self._stuck_last_prog_pos  = None  # (x, y) at last progress event
+
         # TF2 for map-frame robot pose
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -1011,17 +1077,17 @@ class HAANavigationNode(Node):
         # ROS pubs/subs
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 1)
         self.inflation_map_pub = self.create_publisher(OccupancyGrid, '/inflation_map', 1)
-        self.create_subscription(Odometry, '/odom', self.odom_cb, 10)
         self.create_subscription(OccupancyGrid, '/map', self.map_cb, 10)
         self.create_subscription(PoseStamped, '/move_base_simple/goal', self.goal_cb, 10)
 
-        # Timers: state update (50Hz), planning (10Hz), control (50Hz)
-        self.state_timer = self.create_timer(0.02, self.state_update_cb)   # 50Hz TF2 pose
+        # Timers: state update (100Hz), planning (10Hz), control (50Hz)
+        self.state_timer = self.create_timer(0.01, self.state_update_cb)   # 100Hz TF2 pose
         self.planning_timer = self.create_timer(0.1, self.planning_loop)   # 10Hz
-        self.control_timer = self.create_timer(0.02, self.control_loop)    # 50Hz
+        self.control_timer = self.create_timer(0.02, self.control_loop)    # 50Hz       
 
         self.get_logger().info("Real-world HAA planner node started:")
-        self.get_logger().info("  - State update: 50Hz  (TF2 map→base_footprint + /odom velocity)")
+        self.get_logger().info("  - Velocity source: TF2 sliding window (map→base_footprint)")
+        self.get_logger().info("  - State update: 100Hz  (TF2 map→base_footprint pose)")
         self.get_logger().info("  - Planning loop: 10Hz (MPPI, 4s horizon)")
         self.get_logger().info("  - Control loop:  50Hz (Kanayama tracker)")
         self.get_logger().info("  - Map source: /map  (Cartographer OccupancyGrid)")
@@ -1111,13 +1177,39 @@ class HAANavigationNode(Node):
             
             # Create subplots (2x3 layout to include controller commands)
             fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(24, 12))
-            
+
+            # --- Occupancy map background with hard/soft inflation zones ---
+            if self.HAA_occupancy_map is not None:
+                omap = self.HAA_occupancy_map
+                raw  = omap.occupancy_grid
+                res  = omap.resolution
+                _safe_dist = 0.10   # must match plan() safe_distance
+                hard_r = int(self.robot_radius / res)
+                soft_r = int((self.robot_radius + _safe_dist) / res)
+                obstacle_mask = raw > 10
+                if np.any(obstacle_mask):
+                    dist_c = ndimage.distance_transform_edt(~obstacle_mask)
+                else:
+                    dist_c = np.full(raw.shape, 9999.0)
+                # RGBA: start as white opaque, paint zones from outermost in
+                rgba = np.ones((*raw.shape, 4), dtype=float)
+                rgba[dist_c <= soft_r] = [1.0, 1.0, 0.45, 1.0]   # soft: light yellow
+                rgba[dist_c <= hard_r] = [1.0, 0.55, 0.10, 1.0]   # hard: orange
+                rgba[obstacle_mask]    = [0.15, 0.15, 0.15, 1.0]  # obstacle: near-black
+                ax1.imshow(rgba,
+                           extent=[omap.x_min, omap.x_max, omap.y_min, omap.y_max],
+                           origin='lower', aspect='equal', zorder=0)
+                # Store proxy patches for legend — do NOT add_patch (Patch base class is abstract)
+                _p_soft = patches.Rectangle((0,0),1,1, facecolor=[1.0,1.0,0.45], label=f'Soft zone (+{_safe_dist}m)')
+                _p_hard = patches.Rectangle((0,0),1,1, facecolor=[1.0,0.55,0.10], label=f'Hard zone (robot_r={self.robot_radius}m)')
+                _p_obs  = patches.Rectangle((0,0),1,1, facecolor=[0.15,0.15,0.15], label='Obstacle')
+            else:
+                _p_soft = _p_hard = _p_obs = None
+
             # Plot 1: Position trajectory (x, y)
             ax1.plot(x_coords, y_coords, 'b-', linewidth=2, label='Robot Trajectory')
             ax1.plot(x_coords[0], y_coords[0], 'go', markersize=10, label='Start Position')
-            ax1.plot(self.goal[0], self.goal[1], 'ro', markersize=10, label='Target Position')
-            ax1.set_xlim(-2, 2)
-            ax1.set_ylim(-2, 2)
+            ax1.plot(self.goal[0], self.goal[1], 'r*', markersize=14, label='Target Position')
 
             # Draw tube around trajectory with robot radius (Shapely buffer if available)
             positions = np.column_stack([x_coords, y_coords])
@@ -1257,7 +1349,10 @@ class HAANavigationNode(Node):
             ax1.set_xlabel('X Position (m)')
             ax1.set_ylabel('Y Position (m)')
             ax1.set_title('Robot Position Trajectory')
-            ax1.legend()
+            # Include zone proxy patches in legend if the occupancy map was available
+            _extra_handles = [h for h in [_p_soft, _p_hard, _p_obs] if h is not None]
+            _leg_handles, _ = ax1.get_legend_handles_labels()
+            ax1.legend(handles=_leg_handles + _extra_handles)
             ax1.grid(True, alpha=0.3)
             ax1.axis('equal')
             
@@ -1442,7 +1537,7 @@ class HAANavigationNode(Node):
         soft_radius_cells = int((self.robot_radius + _soft_extra) / res)
 
         # Distance (in cells) from every free cell to the nearest obstacle cell
-        obstacle_mask = raw > 0.01   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
+        obstacle_mask = raw > 10   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
         if np.any(obstacle_mask):
             dist_cells = ndimage.distance_transform_edt(~obstacle_mask)
         else:
@@ -1460,33 +1555,64 @@ class HAANavigationNode(Node):
         out.data   = viz.flatten().tolist()
         self.inflation_map_pub.publish(out)
 
-    def odom_cb(self, msg: Odometry):
-        """Update forward speed and yaw rate from wheel odometry (robot body frame)."""
-        self.v = msg.twist.twist.linear.x
-        self.omega = msg.twist.twist.angular.z
-
     def state_update_cb(self):
-        """Look up map→base_footprint TF at 50 Hz to get map-frame pose and velocity."""
+        """Look up map→base_footprint TF at 100 Hz; estimate v, omega from 200ms sliding window."""
         try:
             t = self.tf_buffer.lookup_transform(
-                'map',            # target frame (same as OccupancyGrid)
-                'base_footprint', # source frame (robot base)
-                rclpy.time.Time() # latest available transform
+                'map',
+                'base_footprint',
+                rclpy.time.Time()
             )
-            x_new = t.transform.translation.x
-            y_new = t.transform.translation.y
-            q = t.transform.rotation
+            x_new  = t.transform.translation.x
+            y_new  = t.transform.translation.y
+            q      = t.transform.rotation
             _, _, th_new = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-            # Compute world-frame velocity by finite difference (dt = 0.02 s at 50 Hz)
-            if self._x_prev is not None:
-                _dt = 0.02
-                self.vx_world = (x_new  - self._x_prev) / _dt
-                self.vy_world = (y_new  - self._y_prev) / _dt
-                # Wrap angle difference to [-π, π] before dividing
-                dth = th_new - self._th_prev
-                dth = (dth + np.pi) % (2 * np.pi) - np.pi
-                self.w_world = dth / _dt
+            # --- sliding-window velocity estimate ---
+            # Only add a new entry to pose_history when TF2 actually returned a NEW transform.
+            # Cartographer publishes map→odom at ~10-50 Hz.  Our timer runs at 100 Hz.
+            # When TF2 hasn't updated yet, lookup_transform returns the SAME pose as the
+            # previous call.  Adding that duplicate to pose_history and then applying an EMA
+            # against a "measured velocity" of 0 would decay self.v toward 0 between TF2
+            # updates — which is exactly the wrong behaviour.
+            TF2_CHANGE_THRESHOLD = 0.0003   # 0.3 mm; below this treat position as unchanged
+            pos_changed = (self._x_prev is None or
+                           abs(x_new - self._x_prev) > TF2_CHANGE_THRESHOLD or
+                           abs(y_new - self._y_prev) > TF2_CHANGE_THRESHOLD or
+                           abs(((th_new - self._th_prev) + np.pi) % (2*np.pi) - np.pi) > 0.0003)
+
+            if pos_changed:
+                now_sec = self.get_clock().now().nanoseconds * 1e-9
+                self._pose_history.append((now_sec, x_new, y_new, th_new))
+
+                # Drop entries older than 300 ms
+                cutoff = now_sec - 0.30
+                while self._pose_history and self._pose_history[0][0] < cutoff:
+                    self._pose_history.pop(0)
+
+                # Need at least 80 ms of actual movement data to compute a stable estimate
+                if len(self._pose_history) >= 2:
+                    t0, x0h, y0h, th0h = self._pose_history[0]
+                    dt_win = now_sec - t0
+                    if dt_win >= 0.08:
+                        vx_w = (x_new - x0h) / dt_win
+                        vy_w = (y_new - y0h) / dt_win
+                        dth  = ((th_new - th0h) + np.pi) % (2 * np.pi) - np.pi
+                        w_w  = dth / dt_win
+
+                        # Project world-frame velocity onto robot heading → body-frame forward speed
+                        v_body = vx_w * np.cos(th_new) + vy_w * np.sin(th_new)
+
+                        # Store world-frame components for logging
+                        self.vx_world = vx_w
+                        self.vy_world = vy_w
+                        self.w_world  = w_w
+
+                        # EMA filter — only applied when TF2 gave fresh data (no artificial decay)
+                        _a = 0.5
+                        self.v     = _a * v_body + (1.0 - _a) * self.v
+                        self.omega = _a * w_w    + (1.0 - _a) * self.omega
+            # If pos_changed is False: self.v and self.omega are HELD (not decayed)
 
             self.x = x_new
             self.y = y_new
@@ -1517,6 +1643,9 @@ class HAANavigationNode(Node):
         self.state_traj = []
         self._goal_wait_logged = False
         self.kanayama_controller.reset_integral_errors()
+        # Reset stuck tracker for the new goal
+        self._stuck_last_prog_time = self.get_clock().now().nanoseconds * 1e-9
+        self._stuck_last_prog_pos  = (self.x, self.y)
         self.get_logger().info(
             f"New goal from RViz2: x={x:.3f} m, y={y:.3f} m, theta={np.degrees(theta):.1f} deg"
         )
@@ -1550,9 +1679,12 @@ class HAANavigationNode(Node):
         # It is similar to Tube MPC where the initial condition is also a decision varaible
         # x_true is the true state of the robot, may violate constraints
         x_true = [self.x, self.y, self.theta, self.v, self.omega]
+        #print(x_true)
         if self.v > self.v_limit_haa - 0.005:
             self.v = self.v_limit_haa - 0.005
             #self.get_logger().warn(f"Velocity limited to {self.v_limit_haa} m/s")
+        if self.v < 0:
+            self.v = 0.01;
         if self.omega > self.omega_limit_haa:
             self.omega = self.omega_limit_haa - 0.005
             #self.get_logger().warn(f"Angular velocity limited to {self.omega_limit_haa} rad/s")
@@ -1580,9 +1712,48 @@ class HAANavigationNode(Node):
             )
             return
 
+        # ── Stuck-timeout check ───────────────────────────────────────────────────
+        if self._stuck_last_prog_time is not None:
+            _now = self.get_clock().now().nanoseconds * 1e-9
+            _disp = np.hypot(self.x - self._stuck_last_prog_pos[0],
+                             self.y - self._stuck_last_prog_pos[1])
+            if _disp >= self._stuck_threshold_m:
+                # Robot made progress — reset reference point and timer
+                self._stuck_last_prog_time = _now
+                self._stuck_last_prog_pos  = (self.x, self.y)
+            elif (_now - self._stuck_last_prog_time) > self._stuck_timeout_sec:
+                _elapsed = _now - self._stuck_last_prog_time
+                self.get_logger().warn(
+                    f"STUCK TIMEOUT: robot has not moved {self._stuck_threshold_m}m "
+                    f"in {_elapsed:.1f}s. Aborting goal and saving debug plot."
+                )
+                # Generate debug plot using a fresh sample from the current nominal
+                if self.HAA_mppi_planner is not None and self.HAA_map_ready:
+                    try:
+                        _stuck_state = RobotState(
+                            x=self.x, y=self.y, theta=self.theta, v=self.v, w=self.omega)
+                        _s_ctrl, _s_nom, _s_trajs, _s_mask = \
+                            self.HAA_mppi_planner.sample_debug_trajectories(
+                                _stuck_state, np.array(self.goal_temp[:2]), self.robot_radius)
+                        self.HAA_mppi_planner.debug_plot_no_valid_trajectories(
+                            _stuck_state, np.array(self.goal_temp[:2]),
+                            _s_ctrl, _s_nom, _s_trajs, _s_mask,
+                            title_override=f'STUCK — no progress for {_elapsed:.0f}s '
+                                           f'(threshold {self._stuck_threshold_m}m)')
+                    except Exception as _pe:
+                        self.get_logger().error(f"Stuck debug plot failed: {_pe}")
+                self.publish_stop_command()
+                self.goal_received      = False
+                self.trajectory_ready   = False
+                self.HAA_mppi_planner   = None
+                self._goal_wait_logged  = False
+                self._stuck_last_prog_time = None
+                return
+        # ─────────────────────────────────────────────────────────────────────────
+
         try:
             self.goal_temp = self.goal.copy()
-            
+
             # === HAA PLANNER (4-second horizon, dynamic map) ===
             # Initialize HAA planner if it doesn't exist
             if self.HAA_mppi_planner is None:
@@ -1593,7 +1764,7 @@ class HAANavigationNode(Node):
                     sigma=2,           # higher noise = more diverse path exploration
                     temperature=0.1,
                     num_nodes=haa_horizon,
-                    num_rollouts=1000,
+                    num_rollouts=2000,
                     use_noise_ramp=False,
                     nu=2
                 )
@@ -1619,48 +1790,48 @@ class HAANavigationNode(Node):
             #all planning uses x0, not x_true
             haa_current_state = RobotState(x=x0[0], y=x0[1], theta=x0[2], v=x0[3], w=x0[4])
 
-            # --- diagnostic: clearance from robot centre to nearest obstacle ---
-            omap = self.HAA_occupancy_map
-            gx, gy = omap.world_to_grid(x0[0], x0[1])
-            in_bounds = (0 <= gx < omap.grid_width and 0 <= gy < omap.grid_height)
-            if in_bounds:
-                occ_val = int(omap.occupancy_grid[gy, gx])
-                obstacle_mask = omap.occupancy_grid > 0.01
-                dist_cells = ndimage.distance_transform_edt(~obstacle_mask)[gy, gx]
-                clearance_m = dist_cells * omap.resolution
-                inflation_cells = int(self.robot_radius / omap.resolution)
-                # Use one-cell tolerance to avoid false positives from grid quantization.
-                # E.g. at 0.05 m/cell the nearest discrete distance below 0.22 m is 0.212 m
-                # (sqrt(18)×0.05), which may occur even when the robot is physically safe.
-                start_in_collision = clearance_m < (self.robot_radius - omap.resolution)
-                # World-frame speed magnitude and yaw rate (from TF2 pose differentiation)
-                speed_world = np.hypot(self.vx_world, self.vy_world)
-                # Log nav status every step (10 Hz) — concise single line
-                self.get_logger().info(
-                    f"step={self.step:4d} | pos=({x0[0]:.3f},{x0[1]:.3f}) "
-                    f"θ={np.degrees(x0[2]):.1f}° "
-                    f"vx={self.vx_world:.3f} vy={self.vy_world:.3f} spd={speed_world:.3f} w={self.w_world:.3f} | "
-                    f"dist_goal={dist:.3f}m | clearance={clearance_m:.3f}m "
-                    f"(inflation={inflation_cells} cells={self.robot_radius:.2f}m) | "
-                    f"grid=({gx},{gy}) occ={occ_val}"
-                    + (" *** IN COLLISION ZONE ***" if start_in_collision else "")
-                )
-                if start_in_collision:
-                    self.get_logger().error(
-                        f"Robot is inside the inflated obstacle zone "
-                        f"(clearance {clearance_m:.3f}m < robot_radius {self.robot_radius:.3f}m). "
-                        "All MPPI trajectories will fail. "
-                        "Manually back the robot away from the obstacle, then set a new goal."
-                    )
-            else:
-                self.get_logger().error(
-                    f"Robot position ({x0[0]:.3f},{x0[1]:.3f}) is OUTSIDE map bounds "
-                    f"[x={omap.x_min:.2f}..{omap.x_max:.2f}, y={omap.y_min:.2f}..{omap.y_max:.2f}]. "
-                    "TF2 pose or map origin may be incorrect."
-                )
+            # # --- diagnostic: clearance from robot centre to nearest obstacle ---
+            # omap = self.HAA_occupancy_map
+            # gx, gy = omap.world_to_grid(x0[0], x0[1])
+            # in_bounds = (0 <= gx < omap.grid_width and 0 <= gy < omap.grid_height)
+            # if in_bounds:
+            #     occ_val = int(omap.occupancy_grid[gy, gx])
+            #     obstacle_mask = omap.occupancy_grid > 0.01
+            #     dist_cells = ndimage.distance_transform_edt(~obstacle_mask)[gy, gx]
+            #     clearance_m = dist_cells * omap.resolution
+            #     inflation_cells = int(self.robot_radius / omap.resolution)
+            #     # Use one-cell tolerance to avoid false positives from grid quantization.
+            #     # E.g. at 0.05 m/cell the nearest discrete distance below 0.22 m is 0.212 m
+            #     # (sqrt(18)×0.05), which may occur even when the robot is physically safe.
+            #     start_in_collision = clearance_m < (self.robot_radius - omap.resolution)
+            #     # World-frame speed magnitude and yaw rate (from TF2 pose differentiation)
+            #     speed_world = np.hypot(self.vx_world, self.vy_world)
+            #     # Log nav status every step (10 Hz) — concise single line
+            #     self.get_logger().info(
+            #         f"step={self.step:4d} | pos=({x0[0]:.3f},{x0[1]:.3f}) "
+            #         f"θ={np.degrees(x0[2]):.1f}° "
+            #         f"vx={self.vx_world:.3f} vy={self.vy_world:.3f} spd={speed_world:.3f} w={self.w_world:.3f} | "
+            #         f"dist_goal={dist:.3f}m | clearance={clearance_m:.3f}m "
+            #         f"(inflation={inflation_cells} cells={self.robot_radius:.2f}m) | "
+            #         f"grid=({gx},{gy}) occ={occ_val}"
+            #         + (" *** IN COLLISION ZONE ***" if start_in_collision else "")
+            #     )
+            #     if start_in_collision:
+            #         self.get_logger().error(
+            #             f"Robot is inside the inflated obstacle zone "
+            #             f"(clearance {clearance_m:.3f}m < robot_radius {self.robot_radius:.3f}m). "
+            #             "All MPPI trajectories will fail. "
+            #             "Manually back the robot away from the obstacle, then set a new goal."
+            #         )
+            # else:
+            #     self.get_logger().error(
+            #         f"Robot position ({x0[0]:.3f},{x0[1]:.3f}) is OUTSIDE map bounds "
+            #         f"[x={omap.x_min:.2f}..{omap.x_max:.2f}, y={omap.y_min:.2f}..{omap.y_max:.2f}]. "
+            #         "TF2 pose or map origin may be incorrect."
+            #     )
 
             haa_start_time = time.time()
-            haa_Xopt, haa_Uopt = self.HAA_mppi_planner.plan(haa_current_state, np.array(self.goal_temp[:2]), debug_plot=False, robot_radius=self.robot_radius)
+            haa_Xopt, haa_Uopt = self.HAA_mppi_planner.plan(haa_current_state, np.array(self.goal_temp[:2]), debug_plot=True, robot_radius=self.robot_radius)
             haa_end_time = time.time()
 
             # Check HAA feasibility
@@ -1799,18 +1970,36 @@ class HAANavigationNode(Node):
             current_state, ref_state
         )
         
-        # Apply low-pass filter to reduce noise
-        # Filter: new_value = 0.2 * old_value + 0.8 * new_value
-        #self.v_cmd_filtered = 0.1 * self.v_cmd_filtered + 0.9 * v_cmd
-        #self.w_cmd_filtered = 0.1 * self.w_cmd_filtered + 0.9 * w_cmd
-        self.v_cmd_filtered = v_cmd
-        self.w_cmd_filtered = w_cmd
+        # --- EMA low-pass filter (alpha=0.6: 60% previous, 40% new — stronger smoothing for angular) ---
+        _alpha = 0.6
+        v_smooth = _alpha * self.v_cmd_filtered + (1.0 - _alpha) * v_cmd
+        w_smooth = _alpha * self.w_cmd_filtered + (1.0 - _alpha) * w_cmd
+
+        # --- Rate limiter: cap change per 20 ms tick to avoid step jumps ---
+        _dt_ctrl = 0.02
+        _max_dv = self.a_limit     * _dt_ctrl   # e.g. 0.5 m/s² → 0.010 m/s per tick
+        _max_dw = self.alpha_limit * _dt_ctrl   # e.g. 1.0 rad/s² → 0.020 rad/s per tick
+        self.v_cmd_filtered = float(np.clip(v_smooth,
+                                            self.v_cmd_prev - _max_dv,
+                                            self.v_cmd_prev + _max_dv))
+        self.w_cmd_filtered = float(np.clip(w_smooth,
+                                            self.w_cmd_prev - _max_dw,
+                                            self.w_cmd_prev + _max_dw))
+        self.v_cmd_prev = self.v_cmd_filtered
+        self.w_cmd_prev = self.w_cmd_filtered
         
         # Publish filtered command
         twist = Twist()
         twist.linear.x = self.v_cmd_filtered
         twist.angular.z = self.w_cmd_filtered
         self.cmd_pub.publish(twist)
+
+        self.get_logger().info(
+            f"cmd_vel: v={self.v_cmd_filtered:.3f} w={self.w_cmd_filtered:.3f} | "
+            f"raw: v={v_cmd:.3f} w={w_cmd:.3f} | "
+            f"state v={self.v:.3f} w={self.omega:.3f}",
+            throttle_duration_sec=0.2,
+        )
         
         # Store control command history (store filtered values that were actually published)
         control_data = {
@@ -1825,9 +2014,11 @@ class HAANavigationNode(Node):
     
     def publish_stop_command(self):
         """Publish stop command."""
-        # Reset filtered values when stopping
+        # Reset filter and rate-limiter state when stopping
         self.v_cmd_filtered = 0.0
         self.w_cmd_filtered = 0.0
+        self.v_cmd_prev = 0.0
+        self.w_cmd_prev = 0.0
         twist = Twist()
         twist.linear.x = 0.0
         twist.angular.z = 0.0

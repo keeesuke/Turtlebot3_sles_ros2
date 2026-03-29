@@ -2,5 +2,5 @@ log/
 install/
 build/
 **/__pycache__
-robot_trajectory.png
+**.png
 src/Config/scenario.yaml

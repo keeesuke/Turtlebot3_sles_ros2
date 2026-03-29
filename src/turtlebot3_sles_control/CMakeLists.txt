@@ -14,6 +14,7 @@ install(PROGRAMS
   turtlebot3_sles_control/planner_nn.py
   turtlebot3_sles_control/planner_diffusion.py
   turtlebot3_sles_control/planner_switch_mpc_nn.py
+  turtlebot3_sles_control/map_occupancy_plotter.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
