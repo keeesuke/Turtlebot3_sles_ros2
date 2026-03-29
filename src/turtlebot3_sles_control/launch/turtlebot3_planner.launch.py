@@ -93,7 +93,7 @@ def _launch_setup(context, *args, **kwargs):
 
     planner_node = Node(
         package='turtlebot3_sles_control',
-        # executable='planner_haa_only.py',
+        #executable='planner_haa_only.py',
         executable='planner_haa_real_world.py',
         name='planner_node',
         parameters=yaml_params + [planner_params],

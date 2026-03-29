@@ -220,8 +220,8 @@ class OccupancyGridMap:
         """Visualize the occupancy grid."""
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        
-        # Convert to binary: > 10 = occupied (1), otherwise = free (0)
+
+        # Convert to binary: > 50 = occupied (1), otherwise = free (0)
         binary_grid = (self.occupancy_grid > 50).astype(int)
         
         # Plot occupancy grid
@@ -743,7 +743,7 @@ class MPPIPlanner:
                 valid_trajectories = all_trajectories[valid_mask]
                 
                 # Pre-compute safety-dilated grid for near-obstacle penalty (compute once per planning iteration)
-                safe_distance = 0.10  # meters beyond robot_radius — soft penalty zone for near-obstacle cost
+                safe_distance = 0.050  # meters beyond robot_radius — soft penalty zone for near-obstacle cost
                 total_safety_radius = robot_radius + safe_distance
                 safety_radius_cells = int(total_safety_radius / self.occupancy_map.resolution)
                 safety_dilated_grid = self.occupancy_map.dilate_grid_new(safety_radius_cells)
@@ -846,7 +846,7 @@ class KanayamaController:
         # Time step for integral calculation
         self.dt = 0.02  # 50Hz control loop
         
-        self.v_limit_haa = 0.14
+        self.v_limit_haa = 0.20
         self.omega_limit_haa = 0.9
         
         # Previous reference velocities for feedforward
@@ -1065,7 +1065,7 @@ class HAANavigationNode(Node):
         self._goal_wait_logged = False  # log "waiting for goal" only once per wait cycle
 
         # Stuck detection: abort goal if robot makes no position progress for too long
-        self._stuck_timeout_sec   = 6.0   # seconds without progress → abort
+        self._stuck_timeout_sec   = 10.0   # seconds without progress → abort
         self._stuck_threshold_m   = 0.1   # metres — "progress" means moving at least this far
         self._stuck_last_prog_time = None  # wall-clock seconds at last progress event
         self._stuck_last_prog_pos  = None  # (x, y) at last progress event
@@ -1537,7 +1537,7 @@ class HAANavigationNode(Node):
         soft_radius_cells = int((self.robot_radius + _soft_extra) / res)
 
         # Distance (in cells) from every free cell to the nearest obstacle cell
-        obstacle_mask = raw > 10   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
+        obstacle_mask = raw > 50   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
         if np.any(obstacle_mask):
             dist_cells = ndimage.distance_transform_edt(~obstacle_mask)
         else:
@@ -1762,7 +1762,7 @@ class HAANavigationNode(Node):
                 haa_horizon = self.N_haa  # 4 seconds
                 haa_mppi = MPPI(
                     sigma=2,           # higher noise = more diverse path exploration
-                    temperature=0.1,
+                    temperature=0.3,
                     num_nodes=haa_horizon,
                     num_rollouts=2000,
                     use_noise_ramp=False,

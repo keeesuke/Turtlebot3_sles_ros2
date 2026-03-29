@@ -75,7 +75,7 @@ class LidarMappingNode(Node):
 
         self.create_timer(0.05, self.update_map)          # 20 Hz
         self.create_timer(0.05, self.publish_map)         # 20 Hz
-        self.create_timer(1.0,  self.plot_occupancy_grid) # 1 Hz
+        #self.create_timer(1.0,  self.plot_occupancy_grid) # 1 Hz
 
     def lidar_callback(self, msg):
         ranges = np.array(msg.ranges, dtype=np.float64)

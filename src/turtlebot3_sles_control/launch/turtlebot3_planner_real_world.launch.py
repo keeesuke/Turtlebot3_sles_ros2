@@ -47,11 +47,11 @@ def generate_launch_description():
     planner_params = {
         'horizon_haa':     40,    # 4 s prediction horizon (40 steps × 0.1 s)
         'dt':              0.1,
-        'v_limit_haa':     0.14,  # m/s  (Waffle Pi max ≈ 0.26 m/s; leave margin)
+        'v_limit_haa':     0.2,  # m/s  (Waffle Pi max ≈ 0.26 m/s; leave margin)
         'omega_limit_haa': 0.9,  # rad/s (Waffle Pi hardware max)
         'a_limit':         0.5,   # m/s²
         'alpha_limit':     0.5,   # rad/s² (reduced from 1.0 to halve angular jerk)
-        'robot_radius':    0.1,  # m (waffle_pi footprint with safety margin)
+        'robot_radius':    0.15,  # m (waffle_pi footprint with safety margin)
         'kx':              0.6,
         'ky':              8.0,
         'kth':             1.6,
