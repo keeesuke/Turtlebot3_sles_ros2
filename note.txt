@@ -1,3 +1,24 @@
+
+--- How to operate with Joy Stick Controller ---
+# make sure everything should run in Raspberry Pi, not on local university PC
+# install the packages
+sudo apt install joystick -y
+sudo apt update
+sudo apt install ros-humble-joy ros-humble-teleop-twist-joy -y
+
+# this command activate joy stick command
+jstest /dev/input/js0
+
+# run joy node
+ros2 run joy joy_node
+
+# bridge joy topic to cmd_vel
+cd ~/sles/joy_controller
+python3 joy_teleop_bridge.py
+
+
+--- How to operate with space mouse ---
+
 # For using SpaceMouse, attach USB driver to the PC to activate bluetooth.
 
 --- initial setup for space mouce ---
@@ -16,8 +37,6 @@ sudo apt install ros-humble-spacenav -y
 # Verify it installed:
 bashros2 pkg list | grep spacenav
 
-
---- How to operate with space mouse ---
 
 ##### university local pc #####
 
@@ -82,5 +101,7 @@ ros2 launch turtlebot3_cartographer cartographer.launch.py use_sim_time:=false r
 # check frame tree
 ros2 run tf2_tools view_frames
 
+# launch planner
+ros2 launch turtlebot3_sles_control turtlebot3_planner_real_world.launch.py
 
 
