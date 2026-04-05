@@ -112,14 +112,20 @@ class NNNavigationNode(Node):
             self.get_logger().error(f'NN model not found at {model_path}')
             raise FileNotFoundError(f'NN model not found at {model_path}')
 
-        checkpoint = torch.load(model_path, map_location='cpu')
+        checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
         self.nn_model = MLP(input_dim=364, hidden_dims=[256, 128, 64], output_dim=2, dropout=0.1)
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            # Wrapped checkpoint: {'model_state_dict': OrderedDict, ...}
             self.nn_model.load_state_dict(checkpoint['model_state_dict'])
-            self.get_logger().info(f'NN model loaded from checkpoint: {model_path}')
+            self.get_logger().info(f'NN model loaded from wrapped checkpoint: {model_path}')
+        elif isinstance(checkpoint, dict):
+            # Raw state dict saved with torch.save(model.state_dict(), path)
+            self.nn_model.load_state_dict(checkpoint)
+            self.get_logger().info(f'NN model loaded from state dict: {model_path}')
         else:
+            # Full model saved with torch.save(model, path)
             self.nn_model = checkpoint
-            self.get_logger().info(f'NN model loaded (full model): {model_path}')
+            self.get_logger().info(f'NN model loaded (full model object): {model_path}')
         self.nn_model.eval()
 
         # ROS pub/sub

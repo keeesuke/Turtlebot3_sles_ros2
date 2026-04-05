@@ -50,11 +50,11 @@ echo "      Gazebo PID: ${GAZEBO_PID}"
 echo "      Waiting 20s for Gazebo to fully initialize..."
 sleep 20
 
-# ── Step 2: Launch LiDAR simulation (background) ─────────────────────────────
-echo "[2/4] Launching LiDAR simulation publisher..."
-ros2 launch turtlebot3_sles_perception turtlebot3_simulate_lidar_random.launch.py &
-LIDAR_PID=$!
-echo "      LiDAR PID: ${LIDAR_PID}"
+# ── Step 2: Launch LiDAR simulation  (already launched in step1) ─────────────────────────────
+# echo "[2/4] Launching LiDAR simulation publisher..."
+# ros2 launch turtlebot3_sles_perception turtlebot3_simulate_lidar_random.launch.py &
+# LIDAR_PID=$!
+# echo "      LiDAR PID: ${LIDAR_PID}"
 
 
 # ── Step 3: Launch occupancy map node (background) ───────────────────────────

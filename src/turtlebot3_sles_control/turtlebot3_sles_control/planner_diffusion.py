@@ -158,7 +158,7 @@ class DiffusionNavigationNode(Node):
             self.get_logger().error(f'Diffusion model not found at {model_path}')
             raise FileNotFoundError(f'Diffusion model not found at {model_path}')
 
-        checkpoint = torch.load(model_path, map_location='cpu')
+        checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
         cfg = checkpoint.get('config', {})
         denoiser = DiffusionDenoisingNetwork(
             action_dim=2, condition_dim=364,
