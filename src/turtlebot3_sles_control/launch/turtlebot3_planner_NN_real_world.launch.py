@@ -19,6 +19,8 @@
 #   lidar_max_range : clip LiDAR to this  [default 1.0 m — must match training]
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from pathlib import Path
 import os
@@ -47,6 +49,21 @@ def _default_config_dir():
 def generate_launch_description():
     goal_file = os.path.join(_default_config_dir(), 'goal.yaml')
 
+    # ── Launch argument: path to the trained model (.pth file) ──────────────
+    # Pass on the command line:
+    #   ros2 launch ... model_path:=/path/to/best_model.pth
+    # If omitted, the node falls back to best_model.pth next to the script
+    # in the install tree (original behaviour).
+    model_path_arg = DeclareLaunchArgument(
+        'model_path',
+        default_value='',
+        description=(
+            'Absolute path to the trained best_model.pth file. '
+            'If empty, falls back to the model installed alongside the node script. '
+            'Example: model_path:=~/robot_data/real_world_models/best_model_real.pth'
+        ),
+    )
+
     planner_params = {
         # Velocity limits — match training-time constraints used in simulation.
         # Waffle Pi hardware max is 0.26 m/s / 1.82 rad/s; leave safety margin.
@@ -65,8 +82,13 @@ def generate_launch_description():
         package='turtlebot3_sles_control',
         executable='planner_nn_real_world.py',
         name='nn_planner_node',
-        parameters=yaml_params + [planner_params],
+        parameters=yaml_params + [planner_params, {
+            'model_path': LaunchConfiguration('model_path'),
+        }],
         output='screen',
     )
 
-    return LaunchDescription([planner_node])
+    return LaunchDescription([
+        model_path_arg,
+        planner_node,
+    ])

@@ -2,8 +2,20 @@
 """
 Train MLP for imitation learning.
 Maps (robot_v, robot_w, target_pos_in_robot_frame, lidar_scan) -> (control_v, control_w)
+
+Usage:
+  # Run from the dataset directory (default behaviour, backward-compatible):
+  cd ~/robot_data/real_world_datasets/20260301_120000/
+  python3 train_mlp.py
+
+  # Or specify paths explicitly:
+  python3 train_mlp.py \\
+      --data-dir  ~/robot_data/real_world_datasets/20260301_120000 \\
+      --save-dir  ~/robot_data/real_world_models/run01 \\
+      --epochs 50 --batch-size 256 --lr 1e-3
 """
 
+import argparse
 import numpy as np
 import torch
 import torch.nn as nn
@@ -165,18 +177,37 @@ def validate(model, dataloader, criterion, device, return_metrics=False):
         return avg_loss
 
 def main():
+    parser = argparse.ArgumentParser(
+        description='Train MLP for imitation learning (real-world or sim).',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument('--data-dir', default='.',
+                        help='Directory containing train/val/test_dataset.npz files.')
+    parser.add_argument('--save-dir', default=None,
+                        help='Directory to save best_model.pth and curves. '
+                             'Defaults to <data-dir>/real_world_models/')
+    parser.add_argument('--epochs',     type=int,   default=20)
+    parser.add_argument('--batch-size', type=int,   default=256)
+    parser.add_argument('--lr',         type=float, default=1e-3)
+    parser.add_argument('--dropout',    type=float, default=0.1)
+    args = parser.parse_args()
+
+    data_dir = os.path.expanduser(args.data_dir)
+    save_dir = os.path.expanduser(args.save_dir) if args.save_dir \
+               else os.path.join(data_dir, 'real_world_models')
+
     # Configuration
     config = {
-        'train_file': 'train_dataset.npz',
-        'val_file': 'val_dataset.npz',
-        'test_file': 'test_dataset.npz',
-        'batch_size': 256,
-        'learning_rate': 1e-3,
-        'num_epochs': 20,
+        'train_file': os.path.join(data_dir, 'train_dataset.npz'),
+        'val_file':   os.path.join(data_dir, 'val_dataset.npz'),
+        'test_file':  os.path.join(data_dir, 'test_dataset.npz'),
+        'batch_size': args.batch_size,
+        'learning_rate': args.lr,
+        'num_epochs': args.epochs,
         'hidden_dims': [256, 128, 64],  # 3 hidden layers
-        'dropout': 0.1,
+        'dropout': args.dropout,
         'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-        'save_dir': 'models'
+        'save_dir': save_dir,
     }
     
     print("=" * 60)

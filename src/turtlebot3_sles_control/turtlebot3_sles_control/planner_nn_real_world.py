@@ -86,6 +86,11 @@ class NNNavigationNodeRealWorld(Node):
         self.declare_parameter('trajectory_path',
                                os.path.join(os.path.expanduser('~'),
                                             'robot_trajectory_nn_rw.png'))
+        # Explicit path to best_model.pth.
+        # If empty string (default), fall back to the file next to this script.
+        # Set this parameter at launch to load a model from an arbitrary path
+        # without copying weights into the ROS install tree.
+        self.declare_parameter('model_path', '')
 
         self.v_limit_haa     = self.get_parameter('v_limit_haa').value
         self.omega_limit_haa = self.get_parameter('omega_limit_haa').value
@@ -130,8 +135,14 @@ class NNNavigationNodeRealWorld(Node):
         self.w_cmd_filtered = 0.0
 
         # ── Load NN model ────────────────────────────────────────────────────
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(script_dir, 'best_model.pth')
+        _param_path = self.get_parameter('model_path').value.strip()
+        if _param_path:
+            # Explicit path provided via launch argument or ROS parameter.
+            model_path = os.path.expanduser(_param_path)
+        else:
+            # Fall back to best_model.pth next to this script (install-tree default).
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = os.path.join(script_dir, 'best_model.pth')
         if not os.path.exists(model_path):
             self.get_logger().error(f'NN model not found at {model_path}')
             raise FileNotFoundError(f'NN model not found at {model_path}')

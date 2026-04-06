@@ -8,6 +8,8 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   turtlebot3_sles_data/robot_data_recorder_mpc.py
+  turtlebot3_sles_data/robot_data_recorder_real_world.py
+  turtlebot3_sles_data/prepare_training_data_real_world.py
   turtlebot3_sles_data/analyze_robot_data.py
   DESTINATION lib/${PROJECT_NAME}
 )
