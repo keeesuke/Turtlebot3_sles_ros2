@@ -34,6 +34,7 @@ from datetime import datetime
 
 import tf2_ros
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from tf_transformations import euler_from_quaternion
 
@@ -45,10 +46,7 @@ from tf_transformations import euler_from_quaternion
 STATE_WRITE_INTERVAL_SEC  = 0.02   # 50 Hz max
 # LiDAR recording rate (max). Full scan at every write would be ~100 KB/s.
 LIDAR_WRITE_INTERVAL_SEC  = 0.10   # 10 Hz max
-# Velocity estimation
-TF2_SLIDING_WINDOW_SEC    = 0.30   # 300 ms window
-TF2_EMA_ALPHA             = 0.5    # EMA smoothing factor
-TF2_CHANGE_THRESHOLD      = 0.0003 # 0.3 mm — ignore stale transforms
+# (Velocity now read from /odom twist instead of TF2 sliding-window estimation)
 
 
 # ---------------------------------------------------------------------------
@@ -314,9 +312,8 @@ class RealWorldDataRecorder(Node):
         self._tf_buffer   = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
 
-        # ── Velocity estimation state (mirror planner_nn_real_world.py) ──
-        self._pose_history = []           # [(t_sec, x, y, theta), ...]
-        self._x_prev = self._y_prev = self._th_prev = None
+        # ── Robot state ───────────────────────────────────────────────────
+        # Position/orientation from TF2, velocity from /odom twist
         self._v   = 0.0
         self._omega = 0.0
         self._x = self._y = self._theta = 0.0
@@ -336,6 +333,7 @@ class RealWorldDataRecorder(Node):
             depth=10,
         )
         self.create_subscription(LaserScan, '/scan', self._lidar_cb, scan_qos)
+        self.create_subscription(Odometry,  '/odom',    self._odom_cb,    10)
         self.create_subscription(Twist,     '/cmd_vel', self._cmdvel_cb,  10)
 
         # ── Timer: poll TF2 at 100 Hz for state ──────────────────────────
@@ -348,11 +346,18 @@ class RealWorldDataRecorder(Node):
         self.get_logger().info('=' * 60)
         self.get_logger().info('Real-World Data Recorder started')
         self.get_logger().info(f'  Session folder : {self.data_dir}')
-        self.get_logger().info('  State source   : TF2 map→base_footprint')
+        self.get_logger().info('  State source   : TF2 map→base_footprint (pose) + /odom (velocity)')
         self.get_logger().info('  LiDAR source   : /scan')
         self.get_logger().info('  Control source : /cmd_vel')
         self.get_logger().info('Press Ctrl+C to stop recording and save data.')
         self.get_logger().info('=' * 60)
+
+    # ── /odom velocity callback ──────────────────────────────────────────────
+
+    def _odom_cb(self, msg: Odometry):
+        """Read velocity directly from /odom twist (wheel encoder based)."""
+        self._v     = msg.twist.twist.linear.x
+        self._omega = msg.twist.twist.angular.z
 
     # ── TF2 state timer ─────────────────────────────────────────────────────
 
@@ -368,45 +373,12 @@ class RealWorldDataRecorder(Node):
                 tf2_ros.ExtrapolationException):
             return
 
-        x_new  = t.transform.translation.x
-        y_new  = t.transform.translation.y
-        q      = t.transform.rotation
-        _, _, th_new = euler_from_quaternion([q.x, q.y, q.z, q.w])
-
-        # Ignore stale (duplicate) transforms
-        if self._x_prev is not None:
-            pos_changed = (
-                abs(x_new  - self._x_prev)  > TF2_CHANGE_THRESHOLD
-                or abs(y_new  - self._y_prev)  > TF2_CHANGE_THRESHOLD
-                or abs(((th_new - self._th_prev) + np.pi) % (2 * np.pi) - np.pi) > TF2_CHANGE_THRESHOLD
-            )
-            if not pos_changed:
-                return
+        self._x = t.transform.translation.x
+        self._y = t.transform.translation.y
+        q       = t.transform.rotation
+        _, _, self._theta = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
         now_sec = self.get_clock().now().nanoseconds * 1e-9
-        self._pose_history.append((now_sec, x_new, y_new, th_new))
-
-        # Drop entries older than sliding window
-        cutoff = now_sec - TF2_SLIDING_WINDOW_SEC
-        while self._pose_history and self._pose_history[0][0] < cutoff:
-            self._pose_history.pop(0)
-
-        # Estimate velocity from window
-        if len(self._pose_history) >= 2:
-            t0h, x0h, y0h, th0h = self._pose_history[0]
-            dt_win = now_sec - t0h
-            if dt_win >= 0.08:
-                vx_w  = (x_new  - x0h) / dt_win
-                vy_w  = (y_new  - y0h) / dt_win
-                dth   = ((th_new - th0h) + np.pi) % (2 * np.pi) - np.pi
-                w_w   = dth / dt_win
-                v_body = vx_w * np.cos(th_new) + vy_w * np.sin(th_new)
-                self._v     = TF2_EMA_ALPHA * v_body + (1.0 - TF2_EMA_ALPHA) * self._v
-                self._omega = TF2_EMA_ALPHA * w_w    + (1.0 - TF2_EMA_ALPHA) * self._omega
-
-        self._x, self._y, self._theta = x_new, y_new, th_new
-        self._x_prev, self._y_prev, self._th_prev = x_new, y_new, th_new
-
         self._writer.write_state(
             self._x, self._y, self._theta,
             self._v, self._omega,

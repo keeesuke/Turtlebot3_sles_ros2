@@ -1017,9 +1017,7 @@ class HAANavigationNode(Node):
         self.v_cmd_prev = 0.0   # previous published v (for rate limiting)
         self.w_cmd_prev = 0.0
 
-        # Sliding-window pose history for TF2-based velocity estimation
-        # Stores (t_sec, x, y, theta) tuples; window = 0.2 s
-        self._pose_history = []
+        # (Velocity now comes from /odom twist, not sliding-window TF2 differential)
         
         # Kanayama controller parameters
         self.kx = self.get_parameter('kx').value  # default: 1.0
@@ -1052,13 +1050,10 @@ class HAANavigationNode(Node):
         self.theta = 0.0
         self.v = 0.0
         self.omega = 0.0
-        # World-frame velocity: computed by differencing map-frame TF2 pose at 100 Hz
-        self.vx_world = 0.0   # m/s in map +X direction
-        self.vy_world = 0.0   # m/s in map +Y direction
-        self.w_world  = 0.0   # rad/s yaw rate (same value in body and world frame)
-        self._x_prev   = None  # previous TF2 x for differentiation
-        self._y_prev   = None
-        self._th_prev  = None
+        # World-frame velocity (for logging; derived from body-frame /odom)
+        self.vx_world = 0.0
+        self.vy_world = 0.0
+        self.w_world  = 0.0
 
         # Goal management: wait for explicit goal from RViz2 before planning
         self.goal_received = False
@@ -1079,6 +1074,7 @@ class HAANavigationNode(Node):
         self.inflation_map_pub = self.create_publisher(OccupancyGrid, '/inflation_map', 1)
         self.slam_pose_pub = self.create_publisher(Odometry, '/slam_pose', 10)
         self.create_subscription(OccupancyGrid, '/map', self.map_cb, 10)
+        self.create_subscription(Odometry, '/odom', self.odom_cb, 10)
         self.create_subscription(PoseStamped, '/move_base_simple/goal', self.goal_cb, 10)
 
         # Timers: state update (100Hz), planning (10Hz), control (50Hz)
@@ -1556,71 +1552,27 @@ class HAANavigationNode(Node):
         out.data   = viz.flatten().tolist()
         self.inflation_map_pub.publish(out)
 
+    def odom_cb(self, msg: Odometry):
+        """Read velocity directly from /odom twist (wheel encoder based)."""
+        self.v     = msg.twist.twist.linear.x
+        self.omega = msg.twist.twist.angular.z
+        # Derive world-frame components for logging
+        self.vx_world = self.v * np.cos(self.theta)
+        self.vy_world = self.v * np.sin(self.theta)
+        self.w_world  = self.omega
+
     def state_update_cb(self):
-        """Look up map→base_footprint TF at 100 Hz; estimate v, omega from 200ms sliding window."""
+        """Look up map→base_footprint TF at 100 Hz for position and heading."""
         try:
             t = self.tf_buffer.lookup_transform(
                 'map',
                 'base_footprint',
                 rclpy.time.Time()
             )
-            x_new  = t.transform.translation.x
-            y_new  = t.transform.translation.y
-            q      = t.transform.rotation
-            _, _, th_new = euler_from_quaternion([q.x, q.y, q.z, q.w])
-
-            # --- sliding-window velocity estimate ---
-            # Only add a new entry to pose_history when TF2 actually returned a NEW transform.
-            # Cartographer publishes map→odom at ~10-50 Hz.  Our timer runs at 100 Hz.
-            # When TF2 hasn't updated yet, lookup_transform returns the SAME pose as the
-            # previous call.  Adding that duplicate to pose_history and then applying an EMA
-            # against a "measured velocity" of 0 would decay self.v toward 0 between TF2
-            # updates — which is exactly the wrong behaviour.
-            TF2_CHANGE_THRESHOLD = 0.0003   # 0.3 mm; below this treat position as unchanged
-            pos_changed = (self._x_prev is None or
-                           abs(x_new - self._x_prev) > TF2_CHANGE_THRESHOLD or
-                           abs(y_new - self._y_prev) > TF2_CHANGE_THRESHOLD or
-                           abs(((th_new - self._th_prev) + np.pi) % (2*np.pi) - np.pi) > 0.0003)
-
-            if pos_changed:
-                now_sec = self.get_clock().now().nanoseconds * 1e-9
-                self._pose_history.append((now_sec, x_new, y_new, th_new))
-
-                # Drop entries older than 300 ms
-                cutoff = now_sec - 0.30
-                while self._pose_history and self._pose_history[0][0] < cutoff:
-                    self._pose_history.pop(0)
-
-                # Need at least 80 ms of actual movement data to compute a stable estimate
-                if len(self._pose_history) >= 2:
-                    t0, x0h, y0h, th0h = self._pose_history[0]
-                    dt_win = now_sec - t0
-                    if dt_win >= 0.08:
-                        vx_w = (x_new - x0h) / dt_win
-                        vy_w = (y_new - y0h) / dt_win
-                        dth  = ((th_new - th0h) + np.pi) % (2 * np.pi) - np.pi
-                        w_w  = dth / dt_win
-
-                        # Project world-frame velocity onto robot heading → body-frame forward speed
-                        v_body = vx_w * np.cos(th_new) + vy_w * np.sin(th_new)
-
-                        # Store world-frame components for logging
-                        self.vx_world = vx_w
-                        self.vy_world = vy_w
-                        self.w_world  = w_w
-
-                        # EMA filter — only applied when TF2 gave fresh data (no artificial decay)
-                        _a = 0.5
-                        self.v     = _a * v_body + (1.0 - _a) * self.v
-                        self.omega = _a * w_w    + (1.0 - _a) * self.omega
-            # If pos_changed is False: self.v and self.omega are HELD (not decayed)
-
-            self.x = x_new
-            self.y = y_new
-            self.theta = th_new
-            self._x_prev  = x_new
-            self._y_prev  = y_new
-            self._th_prev = th_new
+            self.x     = t.transform.translation.x
+            self.y     = t.transform.translation.y
+            q          = t.transform.rotation
+            _, _, self.theta = euler_from_quaternion([q.x, q.y, q.z, q.w])
             self.state_ready = True
 
             # Publish SLAM pose for recording / validation

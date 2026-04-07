@@ -35,6 +35,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import tf2_ros
 from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist, PoseStamped
 from tf_transformations import euler_from_quaternion
 
@@ -107,10 +108,10 @@ class NNNavigationNodeRealWorld(Node):
         self.target_reached    = False
         self.shutdown_requested = False
 
-        # ── Robot state (updated by state_update_cb at 100 Hz) ──────────────
+        # ── Robot state ──────────────────────────────────────────────────────
+        # Position/orientation from TF2 (state_update_cb at 100 Hz)
+        # Velocity from /odom twist (odom_cb)
         self.x = self.y = self.theta = self.v = self.omega = 0.0
-        self._x_prev = self._y_prev = self._th_prev = None
-        self._pose_history = []          # [(t_sec, x, y, theta), ...]
 
         # ── Latest LiDAR scan (360 rays, 0…lidar_max_range m) ───────────────
         self.latest_lidar_scan: np.ndarray | None = None
@@ -177,6 +178,7 @@ class NNNavigationNodeRealWorld(Node):
             depth=10,
         )
         self.create_subscription(LaserScan, '/scan', self.lidar_cb, scan_qos)
+        self.create_subscription(Odometry, '/odom', self.odom_cb, 10)
         self.create_subscription(PoseStamped,  '/move_base_simple/goal',  self.goal_cb,         10)
 
         # ── Timers ───────────────────────────────────────────────────────────
@@ -184,7 +186,7 @@ class NNNavigationNodeRealWorld(Node):
         self.control_timer = self.create_timer(0.02, self.control_loop)     #  50 Hz
 
         self.get_logger().info('Real-world NN planner node started:')
-        self.get_logger().info('  - State source  : TF2 map→base_footprint (100 Hz sliding window)')
+        self.get_logger().info('  - State source  : TF2 map→base_footprint (pose) + /odom (velocity)')
         self.get_logger().info('  - LiDAR source  : /scan (real TurtleBot3 LDS-01)')
         self.get_logger().info('  - Goal source   : /move_base_simple/goal (RViz2 2D Goal Pose)')
         self.get_logger().info('  - Control rate  : 50 Hz NN inference')
@@ -219,62 +221,25 @@ class NNNavigationNodeRealWorld(Node):
         except Exception as e:
             self.get_logger().warn(f'lidar_cb error: {e}')
 
-    # ── TF2 state estimation ─────────────────────────────────────────────────
+    # ── /odom velocity callback ───────────────────────────────────────────────
+
+    def odom_cb(self, msg: Odometry):
+        """Read velocity directly from /odom twist (wheel encoder based)."""
+        self.v     = msg.twist.twist.linear.x
+        self.omega = msg.twist.twist.angular.z
+
+    # ── TF2 pose estimation ─────────────────────────────────────────────────
 
     def state_update_cb(self):
-        """Look up map→base_footprint TF at 100 Hz; estimate v, omega from 300 ms window."""
+        """Look up map→base_footprint TF at 100 Hz for position and heading."""
         try:
             t = self.tf_buffer.lookup_transform(
                 'map', 'base_footprint', rclpy.time.Time()
             )
-            x_new  = t.transform.translation.x
-            y_new  = t.transform.translation.y
-            q      = t.transform.rotation
-            _, _, th_new = euler_from_quaternion([q.x, q.y, q.z, q.w])
-
-            # Only add a new entry when TF2 returned a genuinely new transform.
-            # Cartographer publishes map→odom at ~10-50 Hz; our timer is 100 Hz.
-            # Treating a stale (duplicate) pose as a fresh "v=0" measurement
-            # would incorrectly drive the EMA velocity toward zero.
-            TF2_CHANGE_THRESHOLD = 0.0003   # 0.3 mm
-            pos_changed = (
-                self._x_prev is None
-                or abs(x_new  - self._x_prev)  > TF2_CHANGE_THRESHOLD
-                or abs(y_new  - self._y_prev)  > TF2_CHANGE_THRESHOLD
-                or abs(((th_new - self._th_prev) + np.pi) % (2 * np.pi) - np.pi) > 0.0003
-            )
-
-            if pos_changed:
-                now_sec = self.get_clock().now().nanoseconds * 1e-9
-                self._pose_history.append((now_sec, x_new, y_new, th_new))
-
-                # Drop entries older than 300 ms
-                cutoff = now_sec - 0.30
-                while self._pose_history and self._pose_history[0][0] < cutoff:
-                    self._pose_history.pop(0)
-
-                # Need ≥80 ms of data to compute a stable velocity estimate
-                if len(self._pose_history) >= 2:
-                    t0h, x0h, y0h, th0h = self._pose_history[0]
-                    dt_win = now_sec - t0h
-                    if dt_win >= 0.08:
-                        vx_w  = (x_new  - x0h)  / dt_win
-                        vy_w  = (y_new  - y0h)  / dt_win
-                        dth   = ((th_new - th0h) + np.pi) % (2 * np.pi) - np.pi
-                        w_w   = dth / dt_win
-                        # Project world-frame velocity onto robot heading → body-frame forward speed
-                        v_body = vx_w * np.cos(th_new) + vy_w * np.sin(th_new)
-                        # EMA filter (only on fresh TF2 data — no artificial decay)
-                        _a = 0.5
-                        self.v     = _a * v_body + (1.0 - _a) * self.v
-                        self.omega = _a * w_w    + (1.0 - _a) * self.omega
-
-            self.x = x_new
-            self.y = y_new
-            self.theta = th_new
-            self._x_prev  = x_new
-            self._y_prev  = y_new
-            self._th_prev = th_new
+            self.x     = t.transform.translation.x
+            self.y     = t.transform.translation.y
+            q          = t.transform.rotation
+            _, _, self.theta = euler_from_quaternion([q.x, q.y, q.z, q.w])
             self.state_ready = True
 
         except (tf2_ros.LookupException,
