@@ -518,7 +518,7 @@ def main():
     print("=" * 60)
     
     # Load best model
-    checkpoint = torch.load(os.path.join(config['save_dir'], 'best_model.pth'))
+    checkpoint = torch.load(os.path.join(config['save_dir'], 'best_model.pth'), weights_only=False)
     denoising_network.load_state_dict(checkpoint['model_state_dict'])
     
     test_metrics = validate(diffusion_policy, test_loader, config['device'], return_metrics=True)

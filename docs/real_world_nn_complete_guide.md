@@ -225,7 +225,7 @@ Training runs offline on Linux (GPU recommended but CPU works).
 ```bash
 cd ~/robot_data/real_world_datasets/merged_run01
 
-python3 ~/Turtlebot3_sles_ros2/src/turtlebot3_sles_learning/turtlebot3_sles_learning/train_mlp.py \
+python3 ~/sles/Turtlebot3_sles_ros2/src/turtlebot3_sles_learning/turtlebot3_sles_learning/train_mlp.py \
     --data-dir . \
     --save-dir ~/robot_data/real_world_models/run01 \
     --epochs 30

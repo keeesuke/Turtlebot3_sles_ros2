@@ -253,7 +253,7 @@ def main():
     # Loss and optimizer
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=config['learning_rate'])
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
     
     # Training loop
     print("\n" + "=" * 60)
@@ -311,7 +311,7 @@ def main():
     print("=" * 60)
     
     # Load best model
-    checkpoint = torch.load(os.path.join(config['save_dir'], 'best_model.pth'))
+    checkpoint = torch.load(os.path.join(config['save_dir'], 'best_model.pth'), weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     
     test_metrics = validate(model, test_loader, criterion, config['device'], return_metrics=True)

@@ -21,7 +21,7 @@ def load_diffusion_policy(model_path, device='cpu'):
     Returns:
         diffusion_policy: Loaded diffusion policy
     """
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     config = checkpoint['config']
     
     # Initialize denoising network

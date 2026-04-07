@@ -22,6 +22,8 @@ Press Ctrl+C to stop recording and save all data.
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import signal
 import sys
 import os
@@ -328,7 +330,12 @@ class RealWorldDataRecorder(Node):
         self._writer.open()
 
         # ── Subscriptions ─────────────────────────────────────────────────
-        self.create_subscription(LaserScan, '/scan',    self._lidar_cb,   10)
+        scan_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+        )
+        self.create_subscription(LaserScan, '/scan', self._lidar_cb, scan_qos)
         self.create_subscription(Twist,     '/cmd_vel', self._cmdvel_cb,  10)
 
         # ── Timer: poll TF2 at 100 Hz for state ──────────────────────────

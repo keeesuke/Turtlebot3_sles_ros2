@@ -3,10 +3,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 import numpy as np
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import Twist, PoseStamped
 
-from tf_transformations import euler_from_quaternion
+from tf_transformations import euler_from_quaternion, quaternion_from_euler
 import tf2_ros
 import os
 import atexit
@@ -165,7 +165,7 @@ class OccupancyGridMap:
     
     def dilate_grid_new(self, robot_radius_cells):
         """Optimized dilation using distance transform - much faster for large radii."""
-        obstacle_mask = self.occupancy_grid > 50
+        obstacle_mask = self.occupancy_grid > 10
         
         # Early exit: no obstacles
         if not np.any(obstacle_mask):
@@ -222,7 +222,7 @@ class OccupancyGridMap:
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
 
         # Convert to binary: > 50 = occupied (1), otherwise = free (0)
-        binary_grid = (self.occupancy_grid > 50).astype(int)
+        binary_grid = (self.occupancy_grid > 10).astype(int)
         
         # Plot occupancy grid
         im = ax.imshow(binary_grid, 
@@ -1077,6 +1077,7 @@ class HAANavigationNode(Node):
         # ROS pubs/subs
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 1)
         self.inflation_map_pub = self.create_publisher(OccupancyGrid, '/inflation_map', 1)
+        self.slam_pose_pub = self.create_publisher(Odometry, '/slam_pose', 10)
         self.create_subscription(OccupancyGrid, '/map', self.map_cb, 10)
         self.create_subscription(PoseStamped, '/move_base_simple/goal', self.goal_cb, 10)
 
@@ -1537,7 +1538,7 @@ class HAANavigationNode(Node):
         soft_radius_cells = int((self.robot_radius + _soft_extra) / res)
 
         # Distance (in cells) from every free cell to the nearest obstacle cell
-        obstacle_mask = raw > 50   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
+        obstacle_mask = raw > 10   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
         if np.any(obstacle_mask):
             dist_cells = ndimage.distance_transform_edt(~obstacle_mask)
         else:
@@ -1621,6 +1622,24 @@ class HAANavigationNode(Node):
             self._y_prev  = y_new
             self._th_prev = th_new
             self.state_ready = True
+
+            # Publish SLAM pose for recording / validation
+            slam_msg = Odometry()
+            slam_msg.header.stamp    = self.get_clock().now().to_msg()
+            slam_msg.header.frame_id = 'map'
+            slam_msg.child_frame_id  = 'base_footprint'
+            slam_msg.pose.pose.position.x = self.x
+            slam_msg.pose.pose.position.y = self.y
+            slam_msg.pose.pose.position.z = 0.0
+            qx, qy, qz, qw = quaternion_from_euler(0.0, 0.0, self.theta)
+            slam_msg.pose.pose.orientation.x = qx
+            slam_msg.pose.pose.orientation.y = qy
+            slam_msg.pose.pose.orientation.z = qz
+            slam_msg.pose.pose.orientation.w = qw
+            slam_msg.twist.twist.linear.x  = self.v
+            slam_msg.twist.twist.angular.z = self.omega
+            self.slam_pose_pub.publish(slam_msg)
+
         except (tf2_ros.LookupException,
                 tf2_ros.ConnectivityException,
                 tf2_ros.ExtrapolationException):

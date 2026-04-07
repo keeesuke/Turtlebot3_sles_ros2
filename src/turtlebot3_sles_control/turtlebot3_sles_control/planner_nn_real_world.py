@@ -32,6 +32,7 @@ import torch.nn as nn
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import tf2_ros
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, PoseStamped
@@ -170,7 +171,12 @@ class NNNavigationNodeRealWorld(Node):
 
         # ── ROS pubs / subs ──────────────────────────────────────────────────
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 1)
-        self.create_subscription(LaserScan,    '/scan',                   self.lidar_cb,        10)
+        scan_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+        )
+        self.create_subscription(LaserScan, '/scan', self.lidar_cb, scan_qos)
         self.create_subscription(PoseStamped,  '/move_base_simple/goal',  self.goal_cb,         10)
 
         # ── Timers ───────────────────────────────────────────────────────────

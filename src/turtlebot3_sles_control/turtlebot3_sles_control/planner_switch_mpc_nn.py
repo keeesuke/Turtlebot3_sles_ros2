@@ -1016,7 +1016,7 @@ class MPPINavigationNode(Node):
             self.get_logger().error(f"NN model not found at {model_path}")
             raise FileNotFoundError(f"NN model not found at {model_path}")
         try:
-            checkpoint = torch.load(model_path, map_location='cpu')
+            checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
 
             class MLP(nn.Module):
                 def __init__(self, input_dim=364, hidden_dims=[256, 128, 64], output_dim=2, dropout=0.1):

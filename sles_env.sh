@@ -14,37 +14,34 @@
 # SLES_WS="/illinois/Spring2025/independent_study/Turtlebot3_sles_ros2"
 SLES_WS="/home/acrl/sles/Turtlebot3_sles_ros2"
 # ============================================================
-# FIRST-RUN ONLY: Grant execute permissions to all launch files
-# Run once after cloning the repo. Safe to re-run anytime.
+# Only initial setup: Grant execute permissions to all SLES Python scripts.
+# Safe to re-run anytime
 # ============================================================
-# Launch files (.py) in all SLES packages
 # _SLES_SRC="${SLES_WS}/src"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_worlds/launch/turtlebot3_custom_world_random.launch.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_worlds/launch/turtlebot3_custom_world_test.launch.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_worlds/spawn_random_world.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner.launch.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner_NN.launch.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner_diffusion.launch.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/turtlebot3_planner_switch_MPC_NN.launch.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/launch/turtlebot3_simulate_mapping.launch.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/launch/turtlebot3_simulate_lidar.launch.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/launch/turtlebot3_simulate_lidar_random.launch.py"
 
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/planner_haa_only.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/planner_nn.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/planner_diffusion.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/planner_switch_mpc_nn.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/sim_mapping.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/simulate_lidar_publisher.py"
-# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/simulate_lidar_publisher_new.py"
+# # Launch files
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_worlds/launch/"*.py 2>/dev/null || true
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/launch/"*.py 2>/dev/null || true
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/launch/"*.py 2>/dev/null || true
 
-# _SLES_WS_SCRIPTS="${SLES_WS}/scripts"
-# # Shell scripts in the scripts/ directory
-# if [ -d "${_SLES_WS_SCRIPTS}" ]; then
-#     chmod +x "${_SLES_WS_SCRIPTS}"/*.sh 2>/dev/null || true
+# # Control nodes
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_control/turtlebot3_sles_control/"*.py 2>/dev/null || true
+
+# # Perception nodes
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_perception/turtlebot3_sles_perception/"*.py 2>/dev/null || true
+
+# # Data scripts (recorder, converter, analyzer, etc.)
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_data/turtlebot3_sles_data/"*.py 2>/dev/null || true
+
+# # Learning scripts (training, inference)
+# chmod +x "${_SLES_SRC}/turtlebot3_sles_learning/turtlebot3_sles_learning/"*.py 2>/dev/null || true
+
+# # Shell scripts
+# if [ -d "${SLES_WS}/scripts" ]; then
+#     chmod +x "${SLES_WS}/scripts/"*.sh 2>/dev/null || true
 # fi
 
-# unset _SLES_SRC _SLES_WS_SCRIPTS
+# unset _SLES_SRC
 # ============================================================
 
 # ── 1. ROS2 Humble base ──────────────────────────────────────────────────────
