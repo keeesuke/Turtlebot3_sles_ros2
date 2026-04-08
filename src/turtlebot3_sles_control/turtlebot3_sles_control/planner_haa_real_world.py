@@ -165,7 +165,7 @@ class OccupancyGridMap:
     
     def dilate_grid_new(self, robot_radius_cells):
         """Optimized dilation using distance transform - much faster for large radii."""
-        obstacle_mask = self.occupancy_grid > 10
+        obstacle_mask = self.occupancy_grid > 50
         
         # Early exit: no obstacles
         if not np.any(obstacle_mask):
@@ -222,7 +222,7 @@ class OccupancyGridMap:
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
 
         # Convert to binary: > 50 = occupied (1), otherwise = free (0)
-        binary_grid = (self.occupancy_grid > 10).astype(int)
+        binary_grid = (self.occupancy_grid > 50).astype(int)
         
         # Plot occupancy grid
         im = ax.imshow(binary_grid, 
@@ -390,7 +390,7 @@ class MPPIPlanner:
             _safe_dist = 0.10    # keep in sync with plan() safe_distance
             hard_r = int(_robot_r / res)
             soft_r = int((_robot_r + _safe_dist) / res)
-            obstacle_mask = raw > 10
+            obstacle_mask = raw > 50
             if np.any(obstacle_mask):
                 dist_c = ndimage.distance_transform_edt(~obstacle_mask)
             else:
@@ -1183,7 +1183,7 @@ class HAANavigationNode(Node):
                 _safe_dist = 0.10   # must match plan() safe_distance
                 hard_r = int(self.robot_radius / res)
                 soft_r = int((self.robot_radius + _safe_dist) / res)
-                obstacle_mask = raw > 10
+                obstacle_mask = raw > 50
                 if np.any(obstacle_mask):
                     dist_c = ndimage.distance_transform_edt(~obstacle_mask)
                 else:
@@ -1534,7 +1534,7 @@ class HAANavigationNode(Node):
         soft_radius_cells = int((self.robot_radius + _soft_extra) / res)
 
         # Distance (in cells) from every free cell to the nearest obstacle cell
-        obstacle_mask = raw > 10   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
+        obstacle_mask = raw > 50   # True = obstacle (>0 means occupied; -1 = unknown → treated as free)
         if np.any(obstacle_mask):
             dist_cells = ndimage.distance_transform_edt(~obstacle_mask)
         else:
@@ -1732,10 +1732,10 @@ class HAANavigationNode(Node):
                 # HAA: 4-second horizon (40 nodes at 0.1s dt)
                 haa_horizon = self.N_haa  # 4 seconds
                 haa_mppi = MPPI(
-                    sigma=2,           # higher noise = more diverse path exploration
-                    temperature=0.3,
+                    sigma=5,           # higher noise = more diverse path exploration
+                    temperature=1.0,
                     num_nodes=haa_horizon,
-                    num_rollouts=2000,
+                    num_rollouts=1500,
                     use_noise_ramp=False,
                     nu=2
                 )
