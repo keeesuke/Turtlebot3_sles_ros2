@@ -313,10 +313,15 @@ class RealWorldDataRecorder(Node):
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
 
         # ── Robot state ───────────────────────────────────────────────────
-        # Position/orientation from TF2, velocity from /odom twist
+        # Position/orientation from TF2, velocity from /odom twist (filtered)
         self._v   = 0.0
         self._omega = 0.0
         self._x = self._y = self._theta = 0.0
+
+        # ── /odom velocity filter constants ───────────────────────────
+        self._ODOM_V_MAX     = 0.26   # Waffle Pi hardware max (m/s)
+        self._ODOM_OMEGA_MAX = 1.82   # Waffle Pi hardware max (rad/s)
+        self._ODOM_EMA_ALPHA = 0.3    # EMA smoothing
 
         # ── Recording state ───────────────────────────────────────────────
         self._recording  = True
@@ -355,9 +360,12 @@ class RealWorldDataRecorder(Node):
     # ── /odom velocity callback ──────────────────────────────────────────────
 
     def _odom_cb(self, msg: Odometry):
-        """Read velocity directly from /odom twist (wheel encoder based)."""
-        self._v     = msg.twist.twist.linear.x
-        self._omega = msg.twist.twist.angular.z
+        """Read velocity from /odom twist with clipping + EMA smoothing."""
+        v_raw = max(0.0, min(msg.twist.twist.linear.x, self._ODOM_V_MAX))
+        w_raw = max(-self._ODOM_OMEGA_MAX, min(msg.twist.twist.angular.z, self._ODOM_OMEGA_MAX))
+        a = self._ODOM_EMA_ALPHA
+        self._v     = a * v_raw + (1.0 - a) * self._v
+        self._omega = a * w_raw + (1.0 - a) * self._omega
 
     # ── TF2 state timer ─────────────────────────────────────────────────────
 

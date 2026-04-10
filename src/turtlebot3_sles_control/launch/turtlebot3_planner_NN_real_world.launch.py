@@ -67,8 +67,8 @@ def generate_launch_description():
     planner_params = {
         # Velocity limits — match training-time constraints used in simulation.
         # Waffle Pi hardware max is 0.26 m/s / 1.82 rad/s; leave safety margin.
-        'v_limit_haa':     0.2,   # m/s
-        'omega_limit_haa': 0.9,   # rad/s
+        'v_limit_haa':     0.26,   # m/s
+        'omega_limit_haa': 1.82,   # rad/s
         'robot_radius':    0.15,  # m  (waffle_pi footprint + margin)
         # LiDAR clipping: NN was trained with 1.0 m max-range simulated scans.
         # Real LiDAR readings beyond this are clipped to 1.0 m before inference.

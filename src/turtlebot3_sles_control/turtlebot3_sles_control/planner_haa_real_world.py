@@ -1017,7 +1017,10 @@ class HAANavigationNode(Node):
         self.v_cmd_prev = 0.0   # previous published v (for rate limiting)
         self.w_cmd_prev = 0.0
 
-        # (Velocity now comes from /odom twist, not sliding-window TF2 differential)
+        # /odom velocity filter constants (clip + EMA smoothing)
+        self._ODOM_V_MAX     = 0.26   # Waffle Pi hardware max (m/s)
+        self._ODOM_OMEGA_MAX = 1.82   # Waffle Pi hardware max (rad/s)
+        self._ODOM_EMA_ALPHA = 0.3    # EMA smoothing (0=full smooth, 1=no smooth)
         
         # Kanayama controller parameters
         self.kx = self.get_parameter('kx').value  # default: 1.0
@@ -1553,9 +1556,12 @@ class HAANavigationNode(Node):
         self.inflation_map_pub.publish(out)
 
     def odom_cb(self, msg: Odometry):
-        """Read velocity directly from /odom twist (wheel encoder based)."""
-        self.v     = msg.twist.twist.linear.x
-        self.omega = msg.twist.twist.angular.z
+        """Read velocity from /odom twist with clipping + EMA smoothing."""
+        v_raw = max(0.0, min(msg.twist.twist.linear.x, self._ODOM_V_MAX))
+        w_raw = max(-self._ODOM_OMEGA_MAX, min(msg.twist.twist.angular.z, self._ODOM_OMEGA_MAX))
+        a = self._ODOM_EMA_ALPHA
+        self.v     = a * v_raw + (1.0 - a) * self.v
+        self.omega = a * w_raw + (1.0 - a) * self.omega
         # Derive world-frame components for logging
         self.vx_world = self.v * np.cos(self.theta)
         self.vy_world = self.v * np.sin(self.theta)

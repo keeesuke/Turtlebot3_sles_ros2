@@ -110,8 +110,13 @@ class NNNavigationNodeRealWorld(Node):
 
         # ── Robot state ──────────────────────────────────────────────────────
         # Position/orientation from TF2 (state_update_cb at 100 Hz)
-        # Velocity from /odom twist (odom_cb)
+        # Velocity from /odom twist (odom_cb) with clipping + EMA smoothing
         self.x = self.y = self.theta = self.v = self.omega = 0.0
+
+        # ── /odom velocity filter constants ─────────────────────────────────
+        self._ODOM_V_MAX     = 0.26   # Waffle Pi hardware max (m/s)
+        self._ODOM_OMEGA_MAX = 1.82   # Waffle Pi hardware max (rad/s)
+        self._ODOM_EMA_ALPHA = 0.3    # EMA smoothing (0=full smooth, 1=no smooth)
 
         # ── Latest LiDAR scan (360 rays, 0…lidar_max_range m) ───────────────
         self.latest_lidar_scan: np.ndarray | None = None
@@ -224,9 +229,12 @@ class NNNavigationNodeRealWorld(Node):
     # ── /odom velocity callback ───────────────────────────────────────────────
 
     def odom_cb(self, msg: Odometry):
-        """Read velocity directly from /odom twist (wheel encoder based)."""
-        self.v     = msg.twist.twist.linear.x
-        self.omega = msg.twist.twist.angular.z
+        """Read velocity from /odom twist with clipping + EMA smoothing."""
+        v_raw = max(0.0, min(msg.twist.twist.linear.x, self._ODOM_V_MAX))
+        w_raw = max(-self._ODOM_OMEGA_MAX, min(msg.twist.twist.angular.z, self._ODOM_OMEGA_MAX))
+        a = self._ODOM_EMA_ALPHA
+        self.v     = a * v_raw + (1.0 - a) * self.v
+        self.omega = a * w_raw + (1.0 - a) * self.omega
 
     # ── TF2 pose estimation ─────────────────────────────────────────────────
 
