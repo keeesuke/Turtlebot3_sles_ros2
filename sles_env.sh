@@ -71,7 +71,7 @@ export LDS_MODEL="LDS-01"
 
 # ── 5. ROS DOMAIN ID and RMW implementation (Fast-DDS is ROS2 Humble default) ─────────────────
 # export RMW_IMPLEMENTATION=rmw_fastrtps_cpp   # default
-# export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp # alternative
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp # alternative
 export ROS_DOMAIN_ID=30 # to be the same with turtlebot3 hardware
 
 # ── 6. Gazebo model search path ──────────────────────────────────────────────
