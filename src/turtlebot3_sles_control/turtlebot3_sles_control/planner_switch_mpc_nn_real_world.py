@@ -770,7 +770,7 @@ class SwitchMPCNNRealWorldNode(Node):
         # NN/HPA parameters
         self.declare_parameter('v_limit_hpa', 0.26)
         self.declare_parameter('omega_limit_hpa', 1.82)
-        self.declare_parameter('lidar_max_range', 1.0)
+        self.declare_parameter('lidar_max_range', 2.0)
         self.declare_parameter('model_path', '')
         # Kanayama gains
         self.declare_parameter('kx', 1.0)

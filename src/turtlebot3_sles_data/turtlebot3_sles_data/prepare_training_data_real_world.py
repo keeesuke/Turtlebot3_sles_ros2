@@ -354,8 +354,8 @@ def main():
              'Default: ~/robot_data/real_world_datasets/TIMESTAMP/',
     )
     parser.add_argument(
-        '--lidar-max-range', type=float, default=1.0,
-        help='Clip LiDAR readings to this value (m). Must match training-time setting.',
+        '--lidar-max-range', type=float, default=2.0,
+        help='Clip LiDAR readings to this value (m). Must match training-time setting. (original: 1.0)',
     )
     parser.add_argument(
         '--min-speed', type=float, default=0.01,
@@ -386,11 +386,21 @@ def main():
         print(f'ERROR: Split fractions must sum to 1.0, got {sum(s):.4f}')
         sys.exit(1)
 
-    # Expand globs
+    # Expand globs. If a matched directory is a *_AUGMENTED container (not a
+    # session itself), automatically include its sub-session folders instead.
     session_folders = []
     for pattern in args.session_folders:
         expanded = sorted(glob.glob(os.path.expanduser(pattern)))
-        session_folders.extend(expanded if expanded else [pattern])
+        for path in (expanded if expanded else [pattern]):
+            if not os.path.isdir(path):
+                continue
+            basename = os.path.basename(os.path.normpath(path))
+            if basename.endswith('_AUGMENTED'):
+                # Container folder — include its sub-sessions
+                subs = sorted(glob.glob(os.path.join(path, 'session_*')))
+                session_folders.extend(s for s in subs if os.path.isdir(s))
+            else:
+                session_folders.append(path)
     session_folders = [f for f in session_folders if os.path.isdir(f)]
     if not session_folders:
         print('ERROR: No valid session folders found.')

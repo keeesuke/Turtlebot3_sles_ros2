@@ -84,7 +84,7 @@ class NNNavigationNodeRealWorld(Node):
         # NN was trained with 1.0 m max-range simulated LiDAR.
         # Real LiDAR readings beyond this distance carry no useful information
         # for the model, so clip to this value before inference.
-        self.declare_parameter('lidar_max_range',  1.0)   # m
+        self.declare_parameter('lidar_max_range',  2.0)   # m
         self.declare_parameter('trajectory_path',
                                os.path.join(os.path.expanduser('~'),
                                             'robot_trajectory_nn_rw.png'))

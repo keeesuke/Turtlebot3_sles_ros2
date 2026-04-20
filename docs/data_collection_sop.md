@@ -96,24 +96,31 @@ You do **not** need to restart bringup, joy node, or the bridge. Just:
 
 If you want to see the result of your collected data:
 
-### Pre-process
+### 1. Data Augmentation
 
-Merges all sessions, automatically extracts start/goal positions from each episode (no manual labeling needed), syncs LiDAR/state timestamps, and outputs train/val/test splits.
+Generates a mirror + goal-shifted copy of each session. Re-running is safe — already augmented sessions are skipped.
 
 ```bash
 conda activate base
 cd ~/sles/Turtlebot3_sles_ros2
+python3 src/turtlebot3_sles_data/turtlebot3_sles_data/augment_training_data.py
+```
+
+### 2. Pre-process
+
+Merges all sessions (original + augmented), syncs LiDAR/state timestamps, and outputs train/val/test splits.
+
+```bash
 python3 src/turtlebot3_sles_data/turtlebot3_sles_data/prepare_training_data_real_world.py \
-    ~/robot_data/session_*_REAL --merge \
+    ~/robot_data/session_*_REAL* --merge \
     --output-dir ~/robot_data/real_world_datasets/merged_run01
 ```
 
-### Train
+### 3. Train
 
 Trains a 3-layer MLP (input: velocity + goal + 360 LiDAR rays -> output: v, omega commands). Requires PyTorch (installed in conda `base`).
 
 ```bash
-conda activate base
 cd ~/robot_data/real_world_datasets/merged_run01
 python3 ~/sles/Turtlebot3_sles_ros2/src/turtlebot3_sles_learning/turtlebot3_sles_learning/train_mlp.py \
     --data-dir . \
@@ -121,7 +128,7 @@ python3 ~/sles/Turtlebot3_sles_ros2/src/turtlebot3_sles_learning/turtlebot3_sles
     --epochs 30
 ```
 
-### Deploy
+### 4. Deploy
 
 Launches the NN planner. Set a goal using RViz2 **2D Goal Pose** button.
 Make sure to close any node that affect /cmd_vel including joy stick node, otherwise joy stick or teleop keyboard keeps interrupting NN-based control. 

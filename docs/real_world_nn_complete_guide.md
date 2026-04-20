@@ -191,7 +191,7 @@ python3 src/turtlebot3_sles_data/turtlebot3_sles_data/prepare_training_data_real
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--lidar-max-range` | `1.0` | LiDAR clip value (m). **Must match the value used at inference.** |
+| `--lidar-max-range` | `2.0` | LiDAR clip value (m). **Must match the value used at inference.** |
 | `--min-speed` | `0.01` | Filter frames where the robot was nearly stopped |
 | `--lidar-sync-tolerance` | `0.15` | Max time difference (s) between state and LiDAR timestamps |
 | `--split` | `0.8 0.1 0.1` | Train / Val / Test fractions |
@@ -211,7 +211,7 @@ python3 src/turtlebot3_sles_data/turtlebot3_sles_data/prepare_training_data_real
 ```
 states           (N, 2)    [v (m/s), ω (rad/s)]
 target_positions (N, 2)    goal in robot frame [x, y]
-lidar_scans      (N, 360)  normalised LiDAR, range [0, 1.0 m]
+lidar_scans      (N, 360)  normalised LiDAR, range [0, 2.0 m]
 control_linear   (N,)      v command recorded from /cmd_vel
 control_angular  (N,)      ω command recorded from /cmd_vel
 ```
@@ -333,7 +333,7 @@ Real-world NN planner node started:
   - LiDAR source  : /scan (real TurtleBot3 LDS-01)
   - Goal source   : /move_base_simple/goal (RViz2 2D Goal Pose)
   - Control rate  : 50 Hz NN inference
-  - lidar_max_range clipped to 1.0 m (training range)
+  - lidar_max_range clipped to 2.0 m (training range)
 Waiting for TF2 (map→base_footprint) and /scan ...
 ```
 

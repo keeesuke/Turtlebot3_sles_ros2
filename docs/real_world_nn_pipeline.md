@@ -46,7 +46,7 @@ input = [v, ω, goal_x_robot, goal_y_robot, lidar_0, lidar_1, ..., lidar_359]
 | 4–363      | lidar[0–359] | m       | 0〜360°、各光線の障害物距離（0〜lidar_max_range） |
 
 **重要な前処理（LiDAR）:**
-- `inf`, `nan`, `<= 0` の値 → `lidar_max_range`（1.0m）に置換
+- `inf`, `nan`, `<= 0` の値 → `lidar_max_range`（2.0m）に置換
 - 360レイ以外のセンサ → `np.interp` でリサンプリング
 - `[0.0, lidar_max_range]` の範囲にクリップ
 
@@ -130,7 +130,7 @@ v_filtered = 0.5 * v_body + 0.5 * v_prev  # EMAフィルタ
 | レイ数         | 360（固定）                        | 360（LDS-01）または可変                  |
 | 無応答値       | `-1.0`（慣習）                     | `float('inf')` または `nan`             |
 | ノイズ         | なし                               | あり（反射面、照明条件など）               |
-| 最大距離       | 1.0m（シミュレーション設定）        | 3.5m（LDS-01仕様）→ 1.0mにクリップ必要  |
+| 最大距離       | 2.0m（トレーニング設定）           | 3.5m（LDS-01仕様）→ 2.0mにクリップ       |
 | レイ数変換     | 不要                               | 360以外 → `np.interp`でリサンプリング    |
 
 ### 3.3 ゴール指定の違い
@@ -445,8 +445,8 @@ def prepare_training_data(session_folder, output_dir):
         lidar_data, data['lidar_timestamps'], data['robot_state_timestamps']
     )
     
-    # 5. LiDAR 正規化（inf/nan → 1.0m, リサンプリング）
-    normalized_lidar = normalize_lidar(synced_lidar, max_range=1.0)
+    # 5. LiDAR 正規化（inf/nan → 2.0m, リサンプリング）
+    normalized_lidar = normalize_lidar(synced_lidar, max_range=2.0)
     
     # 6. 有効フレームのフィルタリング
     valid_mask = filter_valid_frames(
@@ -623,7 +623,7 @@ ros2 launch turtlebot3_sles_control turtlebot3_planner_NN_real_world.launch.py
 │  prepare_training_data.py（新規作成が必要）                      │
 │   ・ゴール割り当て（最終フレーム → target_positions）            │
 │   ・LiDAR タイムスタンプ同期（最近傍補間）                       │
-│   ・LiDAR 正規化（inf/nan → 1.0m, リサンプリング）               │
+│   ・LiDAR 正規化（inf/nan → 2.0m, リサンプリング）               │
 │   ・無効フレーム除去（速度ゼロ等）                               │
 │   ・Train(80%) / Val(10%) / Test(10%) 分割                      │
 │                          ↓                                       │
@@ -657,7 +657,7 @@ ros2 launch turtlebot3_sles_control turtlebot3_planner_NN_real_world.launch.py
 │                                                                  │
 │  planner_nn_real_world.py                                        │
 │  State: TF2 map→base_footprint (100 Hz EMA)                     │
-│  LiDAR: /scan → 360 ray, [0, 1.0m]                             │
+│  LiDAR: /scan → 360 ray, [0, 2.0m]                             │
 │  Goal:  /move_base_simple/goal (RViz2)                          │
 │  Ctrl:  /cmd_vel @ 50 Hz                                        │
 └─────────────────────────────────────────────────────────────────┘

@@ -132,7 +132,7 @@ v_limit_hpa     = 0.26    # m/s
 omega_limit_hpa = 1.82    # rad/s
 
 # LiDAR
-lidar_max_range = 1.0     # m (must match training)
+lidar_max_range = 2.0     # m (must match training)
 
 # Kanayama tracking
 kx = 0.6, ky = 8.0, kth = 1.6, kv = 1.0, kw = 1.0

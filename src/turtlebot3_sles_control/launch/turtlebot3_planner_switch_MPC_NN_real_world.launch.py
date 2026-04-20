@@ -67,8 +67,8 @@ def generate_launch_description():
         'v_limit_hpa':     0.21,  # m/s  (lowered from 0.26 to match measured hardware cap; training odom was 0.21-0.23 when cmd=0.26. original: 0.26)
         'omega_limit_hpa': 1.82,  # rad/s (NN trained limit)
 
-        # LiDAR clipping: NN was trained with 1.0 m max-range simulated scans.
-        'lidar_max_range': 1.0,   # m
+        # LiDAR clipping: NN trained with this max-range. (original: 1.0)
+        'lidar_max_range': 2.0,   # m
 
         # Kanayama tracking controller gains
         'kx':              0.6,
