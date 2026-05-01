@@ -16,7 +16,7 @@
 #   v_limit_haa     : max forward speed   [default 0.2 m/s]
 #   omega_limit_haa : max angular speed   [default 0.9 rad/s]
 #   robot_radius    : footprint radius    [default 0.15 m]
-#   lidar_max_range : clip LiDAR to this  [default 2.0 m — must match training]
+#   lidar_max_range : clip LiDAR to this  [default 1.0 m — must match training]
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -67,11 +67,12 @@ def generate_launch_description():
     planner_params = {
         # Velocity limits — match training-time constraints used in simulation.
         # Waffle Pi hardware max is 0.26 m/s / 1.82 rad/s; leave safety margin.
-        'v_limit_haa':     0.26,   # m/s
-        'omega_limit_haa': 1.82,   # rad/s
+        'v_limit_haa':     0.2,   # m/s
+        'omega_limit_haa': 1.0,   # rad/s
         'robot_radius':    0.15,  # m  (waffle_pi footprint + margin)
-        # LiDAR clipping: must match training max-range. (original: 1.0)
-        'lidar_max_range': 2.0,   # m
+        # LiDAR clipping: NN was trained with 1.0 m max-range simulated scans.
+        # Real LiDAR readings beyond this are clipped to 1.0 m before inference.
+        'lidar_max_range': 1.0,   # m
     }
 
     # Only load goal.yaml if it exists (goal is normally set at runtime via RViz2)

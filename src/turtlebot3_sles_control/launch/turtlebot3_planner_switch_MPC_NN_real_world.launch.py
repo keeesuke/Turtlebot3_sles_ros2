@@ -57,18 +57,18 @@ def generate_launch_description():
         # MPC/HAA limits (conservative — used during safety-assured mode)
         'horizon_haa':     40,    # 4 s prediction horizon (40 steps × 0.1 s)
         'dt':              0.1,
-        'v_limit_haa':     0.15,  # m/s  (conservative; reduced from 0.2 to widen HPA-HAA gap. original: 0.2)
+        'v_limit_haa':     0.14,  # m/s  (conservative; reduced from 0.2 to widen HPA-HAA gap. original: 0.2)
         'omega_limit_haa': 0.9,   # rad/s
         'a_limit':         0.5,   # m/s²
         'alpha_limit':     0.5,   # rad/s²
         'robot_radius':    0.15,  # m  (waffle_pi footprint with safety margin)
 
         # NN/HPA limits (wider — used during high-performance NN mode)
-        'v_limit_hpa':     0.21,  # m/s  (lowered from 0.26 to match measured hardware cap; training odom was 0.21-0.23 when cmd=0.26. original: 0.26)
-        'omega_limit_hpa': 1.82,  # rad/s (NN trained limit)
+        'v_limit_hpa':     0.20,  # m/s  (lowered from 0.26 to match measured hardware cap; training odom was 0.21-0.23 when cmd=0.26. original: 0.26)
+        'omega_limit_hpa': 1.0,  # rad/s (NN trained limit)
 
-        # LiDAR clipping: NN trained with this max-range. (original: 1.0)
-        'lidar_max_range': 2.0,   # m
+        # LiDAR clipping: NN was trained with 1.0 m max-range simulated scans.
+        'lidar_max_range': 1.0,   # m
 
         # Kanayama tracking controller gains
         'kx':              0.6,

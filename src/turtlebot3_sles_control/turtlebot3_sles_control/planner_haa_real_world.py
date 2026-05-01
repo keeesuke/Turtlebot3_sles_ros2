@@ -17,6 +17,25 @@ import time
 from datetime import datetime
 from scipy import ndimage
 
+
+def _resolve_experiment_plot_path(default_filename: str) -> str:
+    """If an experiment recorder is running, save plots into its folder.
+
+    Reads ~/robot_data/experiments/.current_run pointer file. If present and
+    points to a real directory, returns <that_dir>/<default_filename>.
+    Otherwise falls back to ~/<default_filename> (legacy behaviour).
+    """
+    pointer = os.path.expanduser('~/robot_data/experiments/.current_run')
+    if os.path.exists(pointer):
+        try:
+            with open(pointer) as f:
+                exp_dir = f.read().strip()
+            if exp_dir and os.path.isdir(exp_dir):
+                return os.path.join(exp_dir, default_filename)
+        except Exception:
+            pass
+    return os.path.join(os.path.expanduser('~'), default_filename)
+
 try:
     from shapely.geometry import LineString
     _HAS_SHAPELY = True
@@ -804,13 +823,14 @@ class KanayamaController:
     """Kanayama/Samson-style unicycle tracking controller with integral action."""
     
     def __init__(self, kx: float = 1.0, ky: float = 1.0, kth: float = 2.0, kv: float = 1.0, kw: float = 1.0,
-                 kix: float = 0.1, kiy: float = 0.1, kith: float = 0.1, max_integral: float = 1.0):
+                 kix: float = 0.1, kiy: float = 0.1, kith: float = 0.1, max_integral: float = 1.0,
+                 v_limit_haa: float = 0.14, omega_limit_haa: float = 0.9):
         """
         Initialize Kanayama controller with integral terms.
-        
+
         Args:
             kx: Longitudinal position error gain
-            ky: Lateral position error gain  
+            ky: Lateral position error gain
             kth: Orientation error gain
             kv: Linear velocity error gain
             kw: Angular velocity error gain
@@ -818,37 +838,42 @@ class KanayamaController:
             kiy: Lateral position integral gain
             kith: Orientation integral gain
             max_integral: Maximum integral term to prevent windup
+            v_limit_haa: Linear velocity cap applied to the computed v_cmd
+            omega_limit_haa: Angular velocity cap applied to the computed w_cmd
         """
         self.kx = kx  # Longitudinal position error gain
         self.ky = ky  # Lateral position error gain
         self.kth = kth  # Orientation error gain
         self.kv = kv  # Linear velocity error gain
         self.kw = kw  # Angular velocity error gain
-        
+
         # Integral gains
         self.kix = kix  # Longitudinal position integral gain
         self.kiy = kiy  # Lateral position integral gain
         self.kith = kith  # Orientation integral gain
-        
+
         # Integral windup protection
         self.max_integral = max_integral
-        
+
         # Integral error accumulators
         self.integral_ex = 0.0  # Longitudinal position error integral
         self.integral_ey = 0.0  # Lateral position error integral
         self.integral_eth = 0.0  # Orientation error integral
-        
+
         # Previous errors for derivative terms (if needed later)
         self.prev_ex = 0.0
         self.prev_ey = 0.0
         self.prev_eth = 0.0
-        
+
         # Time step for integral calculation
         self.dt = 0.02  # 50Hz control loop
-        
-        self.v_limit_haa = 0.20
-        self.omega_limit_haa = 0.9
-        
+
+        # Velocity caps applied to compute_control output. MUST come from
+        # constructor args — previously these were hardcoded which silently
+        # ignored the launch-file v_limit_haa parameter.
+        self.v_limit_haa     = v_limit_haa
+        self.omega_limit_haa = omega_limit_haa
+
         # Previous reference velocities for feedforward
         self.prev_v_ref = 0.0
         self.prev_w_ref = 0.0
@@ -1044,7 +1069,9 @@ class HAANavigationNode(Node):
         
         self.kanayama_controller = KanayamaController(
             self.kx, self.ky, self.kth, self.kv, self.kw,
-            self.kix, self.kiy, self.kith, self.max_integral
+            self.kix, self.kiy, self.kith, self.max_integral,
+            v_limit_haa=self.v_limit_haa,
+            omega_limit_haa=self.omega_limit_haa,
         )
 
         # Initial pose/velocity state (set by TF2 timer and odom callback)
@@ -1426,11 +1453,13 @@ class HAANavigationNode(Node):
             
             plt.tight_layout()
             
-            # Save the plot
-            plt.savefig(self.trajectory_path, dpi=300, bbox_inches='tight')
+            # Resolve at save time so a recorder started after the planner
+            # can still capture the plot.
+            save_path = _resolve_experiment_plot_path('robot_trajectory.png')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close()
-            
-            self.get_logger().info(f"Trajectory plot saved to {self.trajectory_path}")
+
+            self.get_logger().info(f"Trajectory plot saved to {save_path}")
             
         except Exception as e:
             self.get_logger().error(f"Failed to save trajectory plot: {e}")

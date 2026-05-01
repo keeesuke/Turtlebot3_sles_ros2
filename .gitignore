@@ -4,3 +4,5 @@ build/
 **/__pycache__
 **.png
 src/Config/scenario.yaml
+src/turtlebot3_sles_learning/turtlebot3_sles_learning/policy/diffusion_policy/models/*
+

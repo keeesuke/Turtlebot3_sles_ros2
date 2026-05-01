@@ -16,6 +16,8 @@ install(PROGRAMS
   turtlebot3_sles_control/planner_diffusion.py
   turtlebot3_sles_control/planner_switch_mpc_nn.py
   turtlebot3_sles_control/planner_switch_mpc_nn_real_world.py
+  turtlebot3_sles_control/planner_switch_mpc_diffusion_real_world.py
+  turtlebot3_sles_control/planner_diffusion_real_world.py
   turtlebot3_sles_control/map_occupancy_plotter.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -23,6 +25,10 @@ install(PROGRAMS
 # Install trained model weights alongside the scripts so __file__-relative
 # path resolution works in both symlink-install and copy-install builds.
 install(FILES
+  turtlebot3_sles_control/policy_runner.py
+  turtlebot3_sles_control/diffusion_policy_model.py
+  turtlebot3_sles_control/flow_matching_model.py
+  turtlebot3_sles_control/deterministic_local_traj.py
   turtlebot3_sles_control/best_model.pth
   turtlebot3_sles_control/best_model_diff.pth
   DESTINATION lib/${PROJECT_NAME}

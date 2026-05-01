@@ -35,13 +35,38 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import tf2_ros
 from sensor_msgs.msg import LaserScan
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, OccupancyGrid
 from geometry_msgs.msg import Twist, PoseStamped
 from tf_transformations import euler_from_quaternion
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+try:
+    from shapely.geometry import LineString
+    _HAS_SHAPELY = True
+except ImportError:
+    _HAS_SHAPELY = False
+
+
+def _resolve_experiment_plot_path(default_filename: str) -> str:
+    """If an experiment recorder is running, save plots into its folder.
+
+    Reads ~/robot_data/experiments/.current_run pointer file. If present and
+    points to a real directory, returns <that_dir>/<default_filename>.
+    Otherwise falls back to ~/<default_filename> (legacy behaviour).
+    """
+    pointer = os.path.expanduser('~/robot_data/experiments/.current_run')
+    if os.path.exists(pointer):
+        try:
+            with open(pointer) as f:
+                exp_dir = f.read().strip()
+            if exp_dir and os.path.isdir(exp_dir):
+                return os.path.join(exp_dir, default_filename)
+        except Exception:
+            pass
+    return os.path.join(os.path.expanduser('~'), default_filename)
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +109,10 @@ class NNNavigationNodeRealWorld(Node):
         # NN was trained with 1.0 m max-range simulated LiDAR.
         # Real LiDAR readings beyond this distance carry no useful information
         # for the model, so clip to this value before inference.
-        self.declare_parameter('lidar_max_range',  2.0)   # m
+        self.declare_parameter('lidar_max_range',  1.0)   # m
+        # trajectory_path defaults to ~/robot_trajectory_nn_rw.png, but at save
+        # time we re-resolve via _resolve_experiment_plot_path() so an active
+        # experiment_recorder run can redirect the plot into its folder.
         self.declare_parameter('trajectory_path',
                                os.path.join(os.path.expanduser('~'),
                                             'robot_trajectory_nn_rw.png'))
@@ -185,6 +213,10 @@ class NNNavigationNodeRealWorld(Node):
         self.create_subscription(LaserScan, '/scan', self.lidar_cb, scan_qos)
         self.create_subscription(Odometry, '/odom', self.odom_cb, 10)
         self.create_subscription(PoseStamped,  '/move_base_simple/goal',  self.goal_cb,         10)
+        # /map from cartographer SLAM — used only as background for the
+        # trajectory plot, not for inference (NN gets raw /scan).
+        self.create_subscription(OccupancyGrid, '/map', self._map_cb, 10)
+        self.latest_map = None
 
         # ── Timers ───────────────────────────────────────────────────────────
         self.state_timer   = self.create_timer(0.01, self.state_update_cb)  # 100 Hz
@@ -413,26 +445,159 @@ class NNNavigationNodeRealWorld(Node):
                 f'max={np.max(self.command_timings):.2f} ms'
             )
 
+    def _map_cb(self, msg: OccupancyGrid):
+        """Latest /map snapshot — used only as plot background."""
+        self.latest_map = msg
+
     def _save_trajectory_plot(self):
+        """2×3 trajectory plot matching MPC and switching planners.
+
+        Layout:
+          (0,0) Robot position trajectory + occupancy map background
+          (0,1) Orientation θ vs time
+          (0,2) Linear velocity vs time (odom-measured)
+          (1,0) Angular velocity vs time (odom-measured)
+          (1,1) Controller linear velocity commands (/cmd_vel)
+          (1,2) Controller angular velocity commands (/cmd_vel)
+        """
         if len(self.state_traj) < 2:
+            self.get_logger().warn("Not enough trajectory data to plot")
             return
+
+        # Re-resolve at save time so an experiment recorder started after the
+        # planner can still capture the plot.
+        save_path = _resolve_experiment_plot_path('robot_trajectory_nn_rw.png')
+
         try:
-            xs = np.array([s[0] for s in self.state_traj])
-            ys = np.array([s[1] for s in self.state_traj])
-            fig, ax = plt.subplots(figsize=(8, 8))
-            ax.plot(xs,       ys,       'b-', linewidth=2,  label='Trajectory')
-            ax.plot(xs[0],    ys[0],    'go', markersize=10, label='Start')
-            ax.plot(self.goal[0], self.goal[1], 'r*', markersize=16, label='Goal')
-            ax.set_xlabel('X (m)')
-            ax.set_ylabel('Y (m)')
-            ax.set_title('NN Real-World Planner Trajectory')
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-            ax.axis('equal')
+            x_coords = [s[0] for s in self.state_traj]
+            y_coords = [s[1] for s in self.state_traj]
+            theta_coords = [s[2] for s in self.state_traj]
+            v_coords     = [s[3] for s in self.state_traj]
+            w_coords     = [s[4] for s in self.state_traj]
+            theta_unwrapped = np.unwrap(np.array(theta_coords))
+
+            dt = 0.02  # 50 Hz control loop (state_traj appended in control_loop)
+            time_steps = np.arange(len(self.state_traj)) * dt
+
+            fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize=(24, 12))
+
+            # ── ax1: trajectory + /map background ────────────────────────────
+            if self.latest_map is not None:
+                m = self.latest_map
+                w = m.info.width
+                h = m.info.height
+                res = m.info.resolution
+                ox = m.info.origin.position.x
+                oy = m.info.origin.position.y
+                grid = np.array(m.data, dtype=np.int8).reshape(h, w)
+                rgba = np.ones((h, w, 4), dtype=float)
+                # Free = white, unknown = light gray, occupied = dark
+                rgba[grid < 0]              = [0.85, 0.85, 0.85, 1.0]
+                rgba[(grid >= 0) & (grid < 50)] = [1.0, 1.0, 1.0, 1.0]
+                rgba[grid >= 50]            = [0.15, 0.15, 0.15, 1.0]
+                ax1.imshow(rgba,
+                           extent=[ox, ox + w * res, oy, oy + h * res],
+                           origin='lower', aspect='equal', zorder=0)
+
+            ax1.plot(x_coords, y_coords, color='#2196F3', linewidth=2,
+                     label='Robot Trajectory', zorder=3)
+            ax1.plot(x_coords[0], y_coords[0], 'o', color='limegreen',
+                     markersize=10, markeredgecolor='black', label='Start', zorder=5)
+            ax1.plot(self.goal[0], self.goal[1], '*', color='red',
+                     markersize=14, markeredgecolor='darkred', label='Goal', zorder=5)
+
+            # Robot radius tube
+            positions = np.column_stack([x_coords, y_coords])
+            if len(positions) > 1 and _HAS_SHAPELY:
+                try:
+                    buffered = LineString(positions).buffer(self.robot_radius)
+                    polys = [buffered] if buffered.geom_type == 'Polygon' else list(buffered.geoms)
+                    for j, poly in enumerate(polys):
+                        bx, by = poly.exterior.xy
+                        ax1.add_patch(patches.Polygon(
+                            np.column_stack([bx, by]),
+                            facecolor='lightblue', edgecolor='blue',
+                            alpha=0.30, linewidth=1, zorder=2,
+                            label='Robot Radius' if j == 0 else ''
+                        ))
+                except Exception:
+                    pass
+
+            ax1.set_xlabel('X Position (m)')
+            ax1.set_ylabel('Y Position (m)')
+            ax1.set_title('Robot Position Trajectory (NN-only)')
+            ax1.legend()
+            ax1.grid(True, alpha=0.3)
+            ax1.axis('equal')
+
+            # ── ax2: orientation ────────────────────────────────────────────
+            ax2.plot(time_steps, theta_unwrapped, 'g-', linewidth=2, label='Orientation (θ)')
+            ax2.set_xlabel('Time (s)')
+            ax2.set_ylabel('Orientation (rad)')
+            ax2.set_title('Robot Orientation vs Time')
+            ax2.legend()
+            ax2.grid(True, alpha=0.3)
+
+            # ── ax3: linear velocity (odom) ─────────────────────────────────
+            ax3.plot(time_steps, v_coords, 'r-', linewidth=2, label='Linear Velocity (v)')
+            ax3.axhline(self.v_limit_haa, color='b', linestyle=':', alpha=0.6,
+                        label=f'NN limit ({self.v_limit_haa} m/s)')
+            ax3.axhline(0.0, color='gray', linestyle='-', alpha=0.3)
+            ax3.set_xlabel('Time (s)')
+            ax3.set_ylabel('Linear Velocity (m/s)')
+            ax3.set_title('Linear Velocity vs Time (odom)')
+            ax3.legend()
+            ax3.grid(True, alpha=0.3)
+
+            # ── ax4: angular velocity (odom) ────────────────────────────────
+            ax4.plot(time_steps, w_coords, 'm-', linewidth=2, label='Angular Velocity (ω)')
+            ax4.axhline(self.omega_limit_haa, color='m', linestyle='--', alpha=0.6,
+                        label=f'NN limit (±{self.omega_limit_haa} rad/s)')
+            ax4.axhline(-self.omega_limit_haa, color='m', linestyle='--', alpha=0.6)
+            ax4.set_xlabel('Time (s)')
+            ax4.set_ylabel('Angular Velocity (rad/s)')
+            ax4.set_title('Angular Velocity vs Time (odom)')
+            ax4.legend()
+            ax4.grid(True, alpha=0.3)
+
+            # ── ax5/ax6: published /cmd_vel commands ────────────────────────
+            if self.control_command_history:
+                cmd_ts = [c['timestamp'] for c in self.control_command_history]
+                cmd_v  = [c['v_cmd']     for c in self.control_command_history]
+                cmd_w  = [c['w_cmd']     for c in self.control_command_history]
+                t0 = cmd_ts[0]
+                cmd_t = [t - t0 for t in cmd_ts]
+
+                ax5.plot(cmd_t, cmd_v, 'b-', linewidth=2, label='Linear Velocity Command')
+                ax5.axhline(self.v_limit_haa, color='b', linestyle=':', alpha=0.6,
+                            label=f'NN limit ({self.v_limit_haa} m/s)')
+                ax5.set_xlabel('Time (s)')
+                ax5.set_ylabel('Linear Velocity Command (m/s)')
+                ax5.set_title('Controller Linear Velocity Commands')
+                ax5.legend()
+                ax5.grid(True, alpha=0.3)
+
+                ax6.plot(cmd_t, cmd_w, 'g-', linewidth=2, label='Angular Velocity Command')
+                ax6.axhline(self.omega_limit_haa, color='m', linestyle='--', alpha=0.6,
+                            label=f'NN limit (±{self.omega_limit_haa} rad/s)')
+                ax6.axhline(-self.omega_limit_haa, color='m', linestyle='--', alpha=0.6)
+                ax6.set_xlabel('Time (s)')
+                ax6.set_ylabel('Angular Velocity Command (rad/s)')
+                ax6.set_title('Controller Angular Velocity Commands')
+                ax6.legend()
+                ax6.grid(True, alpha=0.3)
+            else:
+                for ax_ in (ax5, ax6):
+                    ax_.text(0.5, 0.5, 'No Control Command Data', transform=ax_.transAxes,
+                             ha='center', va='center', fontsize=12, color='red')
+                    ax_.grid(True, alpha=0.3)
+                ax5.set_title('Controller Linear Velocity Commands')
+                ax6.set_title('Controller Angular Velocity Commands')
+
             plt.tight_layout()
-            plt.savefig(self.trajectory_path, dpi=150)
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close(fig)
-            self.get_logger().info(f'Trajectory plot saved to {self.trajectory_path}')
+            self.get_logger().info(f'Trajectory plot saved to {save_path}')
         except Exception as e:
             self.get_logger().error(f'Failed to save trajectory plot: {e}')
 

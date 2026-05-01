@@ -121,6 +121,7 @@ python3 src/turtlebot3_sles_data/turtlebot3_sles_data/prepare_training_data_real
 Trains a 3-layer MLP (input: velocity + goal + 360 LiDAR rays -> output: v, omega commands). Requires PyTorch (installed in conda `base`).
 
 ```bash
+conda activate base
 cd ~/robot_data/real_world_datasets/merged_run01
 python3 ~/sles/Turtlebot3_sles_ros2/src/turtlebot3_sles_learning/turtlebot3_sles_learning/train_mlp.py \
     --data-dir . \
@@ -133,8 +134,21 @@ python3 ~/sles/Turtlebot3_sles_ros2/src/turtlebot3_sles_learning/turtlebot3_sles
 Launches the NN planner. Set a goal using RViz2 **2D Goal Pose** button.
 Make sure to close any node that affect /cmd_vel including joy stick node, otherwise joy stick or teleop keyboard keeps interrupting NN-based control. 
 
+For paper/report runs (records all data + saves the plot into a per-run folder under `~/robot_data/experiments/`), see [`experiment_protocol.md`](experiment_protocol.md).
+
+Switching:
 ```bash
 conda activate base
-ros2 launch turtlebot3_sles_control turtlebot3_planner_NN_real_world.launch.py \
-    model_path:=~/robot_data/real_world_models/run01/best_model.pth
+ros2 launch turtlebot3_sles_control turtlebot3_planner_switch_MPC_NN_real_world.launch.py model_path:=~/robot_data/real_world_models/run01/best_model.pth
+```
+
+MPC only:
+```bash
+ros2 launch turtlebot3_sles_control turtlebot3_planner_real_world.launch.py
+```
+
+NN only:
+```bash
+conda activate base
+ros2 launch turtlebot3_sles_control turtlebot3_planner_NN_real_world.launch.py model_path:=~/robot_data/real_world_models/run01/best_model.pth
 ```

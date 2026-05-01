@@ -354,8 +354,8 @@ def main():
              'Default: ~/robot_data/real_world_datasets/TIMESTAMP/',
     )
     parser.add_argument(
-        '--lidar-max-range', type=float, default=2.0,
-        help='Clip LiDAR readings to this value (m). Must match training-time setting. (original: 1.0)',
+        '--lidar-max-range', type=float, default=1.0,
+        help='Clip LiDAR readings to this value (m). Must match training-time setting.',
     )
     parser.add_argument(
         '--min-speed', type=float, default=0.01,

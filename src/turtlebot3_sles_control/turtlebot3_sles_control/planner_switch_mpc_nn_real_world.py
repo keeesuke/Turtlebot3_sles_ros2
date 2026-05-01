@@ -48,6 +48,25 @@ import time
 from datetime import datetime
 from scipy import ndimage
 
+
+def _resolve_experiment_plot_path(default_filename: str) -> str:
+    """If an experiment recorder is running, save plots into its folder.
+
+    Reads ~/robot_data/experiments/.current_run pointer file. If present and
+    points to a real directory, returns <that_dir>/<default_filename>.
+    Otherwise falls back to ~/<default_filename> (legacy behaviour).
+    """
+    pointer = os.path.expanduser('~/robot_data/experiments/.current_run')
+    if os.path.exists(pointer):
+        try:
+            with open(pointer) as f:
+                exp_dir = f.read().strip()
+            if exp_dir and os.path.isdir(exp_dir):
+                return os.path.join(exp_dir, default_filename)
+        except Exception:
+            pass
+    return os.path.join(os.path.expanduser('~'), default_filename)
+
 import torch
 import torch.nn as nn
 
@@ -209,7 +228,7 @@ class OccupancyGridMap:
 
     def dilate_grid_new(self, robot_radius_cells):
         """Optimized dilation using distance transform."""
-        obstacle_mask = self.occupancy_grid > 50
+        obstacle_mask = self.occupancy_grid > 60
         if not np.any(obstacle_mask):
             return np.zeros_like(obstacle_mask, dtype=bool)
         distance_map = ndimage.distance_transform_edt(~obstacle_mask)
@@ -244,7 +263,7 @@ class OccupancyGridMap:
         """Visualize the occupancy grid."""
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        binary_grid = (self.occupancy_grid > 50).astype(int)
+        binary_grid = (self.occupancy_grid > 60).astype(int)
         im = ax.imshow(binary_grid, origin='lower', cmap='gray_r',
                       extent=[self.x_min, self.x_max, self.y_min, self.y_max],
                       vmin=0, vmax=1)
@@ -380,7 +399,7 @@ class MPPIPlanner:
             _safe_dist = 0.10
             hard_r = int(_robot_r / res)
             soft_r = int((_robot_r + _safe_dist) / res)
-            obstacle_mask = raw > 50
+            obstacle_mask = raw > 60
             if np.any(obstacle_mask):
                 dist_c = ndimage.distance_transform_edt(~obstacle_mask)
             else:
@@ -770,7 +789,7 @@ class SwitchMPCNNRealWorldNode(Node):
         # NN/HPA parameters
         self.declare_parameter('v_limit_hpa', 0.26)
         self.declare_parameter('omega_limit_hpa', 1.82)
-        self.declare_parameter('lidar_max_range', 2.0)
+        self.declare_parameter('lidar_max_range', 1.0)
         self.declare_parameter('model_path', '')
         # Kanayama gains
         self.declare_parameter('kx', 1.0)
@@ -1070,7 +1089,7 @@ class SwitchMPCNNRealWorldNode(Node):
         _soft_extra = 0.05
         hard_radius_cells = int(self.robot_radius / res)
         soft_radius_cells = int((self.robot_radius + _soft_extra) / res)
-        obstacle_mask = raw > 50
+        obstacle_mask = raw > 60
         if np.any(obstacle_mask):
             dist_cells = ndimage.distance_transform_edt(~obstacle_mask)
         else:
@@ -1429,7 +1448,7 @@ class SwitchMPCNNRealWorldNode(Node):
                     self.get_logger().debug(f"HAA current velocity: {haa_current_state.v:.3f}, "
                                             f"velocity limit: {self.v_limit_haa - N_s * self.dt * self.a_limit:.3f}")
                     # if haa_current_state.v < self.v_limit_haa - N_s * self.dt * self.a_limit:
-                    safety_margin = N_s * self.dt * self.v_limit_haa + self.v_limit_haa**2 / (2 * self.a_limit) + 0.05
+                    safety_margin = N_s * self.dt * self.v_limit_haa + self.v_limit_haa**2 / (2 * self.a_limit) + 0.2
                     collisions = self.HAA_mppi_planner.occupancy_map.check_collision_new(
                         np.array([haa_current_state.x]),
                         np.array([haa_current_state.y]),
@@ -1679,7 +1698,7 @@ class SwitchMPCNNRealWorldNode(Node):
                 _safe_dist = 0.10
                 hard_r = int(self.robot_radius / res)
                 soft_r = int((self.robot_radius + _safe_dist) / res)
-                obstacle_mask = raw > 50
+                obstacle_mask = raw > 60
                 if np.any(obstacle_mask):
                     dist_c = ndimage.distance_transform_edt(~obstacle_mask)
                 else:
@@ -1892,9 +1911,12 @@ class SwitchMPCNNRealWorldNode(Node):
                 ax6.grid(True, alpha=0.3)
 
             plt.tight_layout()
-            plt.savefig(self.trajectory_path, dpi=300, bbox_inches='tight')
+            # Resolve at save time so a recorder started after the planner
+            # can still capture the plot.
+            save_path = _resolve_experiment_plot_path('robot_trajectory_switch.png')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
             plt.close()
-            self.get_logger().info(f"Trajectory plot saved to {self.trajectory_path}")
+            self.get_logger().info(f"Trajectory plot saved to {save_path}")
 
         except Exception as e:
             self.get_logger().error(f"Failed to save trajectory plot: {e}")
