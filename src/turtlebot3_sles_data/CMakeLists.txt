@@ -12,6 +12,7 @@ install(PROGRAMS
   turtlebot3_sles_data/prepare_training_data_real_world.py
   turtlebot3_sles_data/analyze_robot_data.py
   turtlebot3_sles_data/experiment_recorder.py
+  turtlebot3_sles_data/analyze_experiments.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

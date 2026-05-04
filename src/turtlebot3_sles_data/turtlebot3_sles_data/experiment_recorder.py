@@ -459,6 +459,11 @@ class ExperimentRecorder(Node):
             },
             'duration_sec':          duration,
             'travel_distance_m':     dist,
+            # NOTE: `avg_speed_m_s` here is path-length / duration. The path
+            # length is computed from SLAM TF poses and is inflated by
+            # localisation jitter — every tick adds a few mm of noise to the
+            # diff sum. For paper figures use `cmd_linear_velocity.mean`
+            # instead (analyze_experiments.py does this automatically).
             'avg_speed_m_s':         dist / duration if duration > 0 else 0.0,
             'goal_position':         list(self.goal_xy) if self.goal_xy else None,
             'goal_reached':          goal_reached,
@@ -522,11 +527,11 @@ class ExperimentRecorder(Node):
             self.get_logger().info(f'   Logic         : {summary["logic"]}')
             self.get_logger().info(f'   Duration      : {summary["duration_sec"]:.2f} s '
                                    f'(first cmd → {"goal" if summary["goal_reached"] else "stop"})')
-            self.get_logger().info(f'   Distance      : {summary["travel_distance_m"]:.2f} m')
-            self.get_logger().info(f'   Avg speed     : {summary["avg_speed_m_s"]:.3f} m/s')
-            self.get_logger().info(f'   Goal reached  : {summary["goal_reached"]}')
+            self.get_logger().info(f'   Distance      : {summary["travel_distance_m"]:.2f} m  (SLAM-jitter inflated)')
             self.get_logger().info(f'   Cmd v max     : {summary["cmd_linear_velocity"]["max"]:.3f} m/s')
+            self.get_logger().info(f'   Cmd v mean    : {summary["cmd_linear_velocity"]["mean"]:.3f} m/s  (use this as avg speed)')
             self.get_logger().info(f'   Odom v max    : {summary["odom_linear_velocity"]["max"]:.3f} m/s')
+            self.get_logger().info(f'   Goal reached  : {summary["goal_reached"]}')
             self.get_logger().info('─' * 60)
         except Exception as e:
             self.get_logger().error(f'Error finalizing: {e}')

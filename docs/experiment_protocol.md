@@ -103,8 +103,16 @@ Setup time before the goal/cmd starts and idle time after goal-reach are exclude
     "note": "Metrics & saved JSON/NPZ cover this window only. Raw .jsonl files contain the full unwindowed stream."
   },
   "duration_sec": 18.34,                 // window_end - window_start
-  "travel_distance_m": 3.61,             // sum of position diffs INSIDE window
-  "avg_speed_m_s": 0.197,                // distance / duration
+  "travel_distance_m": 3.61,             // sum of SLAM-TF pose diffs INSIDE
+                                         // window. Inflated by localisation
+                                         // jitter — keep for reference only.
+  "avg_speed_m_s": 0.197,                // distance / duration. Inherits the
+                                         // jitter inflation above and can
+                                         // exceed the planner's velocity cap.
+                                         // For the paper, use
+                                         // cmd_linear_velocity.mean instead
+                                         // (analyze_experiments.py does this
+                                         // automatically).
   "goal_position": [3.5, -0.5],          // first goal published in this run, or null
   "goal_reached": true,                  // first time inside 0.10 m of goal
   "final_distance_to_goal_m": 0.08,
@@ -175,15 +183,48 @@ For each logic, run N≥3 trials with the same start and goal, then report:
 |---|---|---|---|
 | Goal-reach rate (success / N) | | | |
 | Mean travel time (s) | mean ± std of `duration_sec` | | |
-| Mean travel distance (m) | mean ± std of `travel_distance_m` | | |
-| Mean travel speed (m/s) | mean ± std of `avg_speed_m_s` | | |
-| Peak commanded `v` (m/s) | mean of `cmd_linear_velocity.max` | | |
-| Peak measured `v` (m/s) | mean of `odom_linear_velocity.max` | | |
+| Mean travel distance (m) | mean ± std of `travel_distance_m` (note: jitter-inflated) | | |
+| Mean commanded v (m/s) | mean ± std of `cmd_linear_velocity.mean` | | |
+| Peak commanded v (m/s) | mean of `cmd_linear_velocity.max` | | |
+| Mean measured v (m/s) | mean of `odom_linear_velocity.mean` | | |
+| Peak measured v (m/s) | mean of `odom_linear_velocity.max` | | |
 | Number of switches | — | — | from plot's planner-history segments |
 
-Build the table from `experiment_summary.json` files — one row per logic, aggregated across runs.
+`analyze_experiments.py` builds this table automatically — see the next section. The script intentionally **does not** use `avg_speed_m_s` from the recorder summary (= path / duration), because the SLAM TF positions are noisy and `np.diff().sum()` accumulates that noise into a fake +50% travel distance, pushing the resulting "speed" above the planner's velocity cap. Reporting `cmd_linear_velocity.mean` (or `odom_linear_velocity.mean`) is both bounded and physically meaningful.
 
-## Re-analysing later
+## Aggregate analysis (paper-ready performance matrix)
+
+`analyze_experiments.py` walks every `<TS>_<LOGIC>/experiment_summary.json` under `~/robot_data/experiments/` and produces:
+
+| Output | Purpose |
+|---|---|
+| `runs.csv` | One row per run — drop into spreadsheets / Pandas. |
+| `by_logic.csv` | Aggregated mean/std/min/max for every metric. |
+| `by_logic.md` | Markdown table ready to paste into the paper. |
+| `metrics_comparison.png` | Bar chart with error bars (success rate, time, distance, speed, peak v). |
+| `trajectories.png` | Overlay of every run's trajectory, coloured by logic. |
+
+Run with no arguments to analyse everything; outputs go to `~/robot_data/experiments/analysis_<NOW>/`.
+
+```bash
+# All runs, default output folder
+ros2 run turtlebot3_sles_data analyze_experiments.py
+
+# Limit to a subset (e.g. paper-ready set)
+ros2 run turtlebot3_sles_data analyze_experiments.py \
+    --data-dir ~/robot_data/experiments/for_paper
+
+# Time / distance / speed averaged over successful runs only
+# (failed runs hit Ctrl+C and skew duration)
+ros2 run turtlebot3_sles_data analyze_experiments.py --successful-only-for-time
+
+# Only one logic
+ros2 run turtlebot3_sles_data analyze_experiments.py --logic switch
+```
+
+The markdown table is also printed to stdout immediately so you can sanity-check before opening the file.
+
+## Re-analysing later (training-data pipeline)
 
 `prepare_training_data_real_world.py` accepts these run folders (they share the same NPZ schema as recording sessions). E.g., to re-process all NN-only runs into a unified dataset:
 
